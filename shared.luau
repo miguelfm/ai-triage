@@ -248,6 +248,34 @@ function M.pace(detail)
     return last, points, word
 end
 
+-- Whether a 5h rolling session has actively started consumption/countdown.
+function M.isSessionStarted(metric)
+    if type(metric) ~= "table" then return false end
+    local pct = tonumber(metric.percent) or 0
+    if pct > 0 then
+        return true
+    end
+    local at = M.parseIso(metric.reset_at)
+    if at ~= nil and at > os.time() then
+        return true
+    end
+    local fromDetail = M.elapsedPercent(metric.detail)
+    if fromDetail ~= nil and fromDetail > 0 then
+        return true
+    end
+    local detail = tostring(metric.detail or "")
+    if detail:find("Resets in", 1, true) then
+        local left = M.countdown(metric)
+        if left == "" then left = detail:match("Resets in ([^·]+)") or "" end
+        left = noctalia.string.trim(left)
+        local trNow = (noctalia and type(noctalia.tr) == "function") and noctalia.tr("ui.now") or "now"
+        if left ~= "" and left ~= "now" and left ~= trNow then
+            return true
+        end
+    end
+    return false
+end
+
 -- Kept next to the role both entries colour with, so the tiers cannot be edited
 -- in one file and forgotten in the other. `low` falls through to 0, like
 -- anything the CLI adds later.

@@ -30,7 +30,7 @@ accessible or placed on your PATH (e.g. `~/.local/bin/ai-kickstart`).
 ## Features
 
 - **Cross-Weighted Best Pick Engine**: Dynamically calculates the optimal model to route prompts to by balancing rolling 5-hour session headroom against 7-day weekly health and pace (severely penalizes models with $<15\%$ free or $\le -15\text{pts}$ behind pace; boosts models with healthy weekly pace and detects urgent resets with quota remaining).
-- **Interactive Session Priming (`ai-kickstart`)**: Providers with rolling windows (Claude, OpenAI, Antigravity) only start counting when the first prompt is sent. Cards with 0% usage display a `[⚡ Start 5h]` button that sends a minimal 1-token prompt to start the clock at the beginning of your workday.
+- **Interactive Session Priming (`ai-kickstart`)**: Providers with rolling windows (Claude, OpenAI, Antigravity) only start counting when the first prompt is sent. Cards whose 5-hour session period has not yet been initiated display a `[⚡ Start 5h]` button that sends a minimal 1-token prompt to start the clock at the beginning of your workday. Once initiated, the button cleanly yields to the active countdown.
 - **Dynamic Time Needle Marker**: The dual-layer gauge features a live needle marker that ticks with the active countdown, immediately showing whether token consumption is ahead or behind elapsed time.
 - **Triage Status Badges**: Real-time triage pills (`Optimal`, `Safe`, `Low`, `Critical`, `Starved`, `Fresh`) with detailed consumption pace tooltips on hover.
 - **Compact Geometry**: Optimized 710px vertical height with zero wasted screen space.

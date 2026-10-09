@@ -14,6 +14,7 @@ local providerGlyph, parseIso = shared.providerGlyph, shared.parseIso
 local countdown, resetClock = shared.countdown, shared.resetClock
 local ratio, headline, severityRole = shared.ratio, shared.headline, shared.severityRole
 local modelHeadlines, isCritical, dualMetrics = shared.modelHeadlines, shared.isCritical, shared.dualMetrics
+local isSessionStarted = shared.isSessionStarted
 local modelGlyph = shared.modelGlyph
 local modelDisplayName = shared.modelDisplayName
 local elapsedPercent, pace = shared.elapsedPercent, shared.pace
@@ -1033,12 +1034,19 @@ local function collectResetCredits(candidates)
 end
 
 local function formatResetTime(metric, windowLabel)
+    local isWeekly = windowLabel == "7d"
+    if not isWeekly and not isSessionStarted(metric) then
+        return ""
+    end
     local at = parseIso(metric and metric.reset_at)
     if at == nil then
         return countdown(metric)
     end
+    if not isWeekly and at <= os.time() then
+        return ""
+    end
     local clock = noctalia.formatTime(noctalia.timeFormat(), at)
-    if windowLabel == "7d" then
+    if isWeekly then
         local weekday = os.date("%a", at)
         local day = os.date("%d", at)
         local month = os.date("%b", at)
@@ -1054,9 +1062,12 @@ local function formatResetTime(metric, windowLabel)
 end
 
 local function countdownColor(metric)
+    if not isSessionStarted(metric) then
+        return "on_surface_variant"
+    end
     local at = parseIso(metric and metric.reset_at)
     local window = tonumber(metric and metric.window_secs) or 18000
-    if at == nil then
+    if at == nil or at <= os.time() then
         return "on_surface_variant"
     end
 
@@ -1078,14 +1089,18 @@ end
 
 local function calculateElapsed(metric, windowLabel)
     if metric == nil then return nil end
+    local isWeekly = windowLabel == "7d"
+    if not isWeekly and not isSessionStarted(metric) then
+        return nil
+    end
     local fromDetail = elapsedPercent(metric.detail)
     if fromDetail ~= nil then
         return math.min(100, math.max(0, fromDetail))
     end
     local at = parseIso(metric.reset_at)
     local window = tonumber(metric.window_secs)
-        or (windowLabel == "7d" and 604800 or 18000)
-    if at ~= nil and window > 0 then
+        or (isWeekly and 604800 or 18000)
+    if at ~= nil and window > 0 and at > os.time() then
         local remaining = math.max(0, at - os.time())
         local elapsed = math.max(0, window - remaining)
         return math.min(100, math.max(0, math.floor((elapsed / window) * 100)))
@@ -1109,7 +1124,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel)
     local isWeekly = windowLabel == "7d"
     local remainingQuota = 100 - percent
     local at = parseIso(metric.reset_at)
-    local remainingSecs = at and math.max(0, at - os.time()) or 0
+    local remainingSecs = (at and at > os.time()) and (at - os.time()) or 0
     local paceDiff = (elapsedPct or 0) - percent
 
     if percent >= 100 then
@@ -1147,15 +1162,15 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel)
 
     local shouldBurn = false
     if not isWeekly then
-        if remainingSecs <= 5400 and remainingQuota >= 25 then
+        if remainingSecs <= 5400 and remainingQuota >= 25 and remainingSecs > 0 then
             shouldBurn = true
-        elseif remainingSecs <= 9000 and remainingQuota >= 45 then
+        elseif remainingSecs <= 9000 and remainingQuota >= 45 and remainingSecs > 0 then
             shouldBurn = true
-        elseif paceDiff >= 20 and remainingQuota >= 40 then
+        elseif paceDiff >= 20 and remainingQuota >= 40 and isSessionStarted(metric) then
             shouldBurn = true
         end
     else
-        if remainingSecs <= 216000 and remainingQuota >= 35 then
+        if remainingSecs <= 216000 and remainingQuota >= 35 and remainingSecs > 0 then
             shouldBurn = true
         elseif paceDiff >= 20 and remainingQuota >= 40 then
             shouldBurn = true
@@ -1175,7 +1190,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel)
         }
     end
 
-    if percent == 0 then
+    if not isWeekly and not isSessionStarted(metric) and percent == 0 then
         return {
             status = "fresh",
             label = "Fresh",
@@ -1184,7 +1199,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel)
             bg = "tertiary/0.14",
             border = "tertiary/0.35",
             cardBorder = nil,
-            summary = "100% free · unused session",
+            summary = "100% free · session not started",
         }
     end
 
@@ -1262,9 +1277,14 @@ local function findBestPick(modelItems)
                 local sPct = tonumber(sMetric.percent) or 0
                 local sFree = 100 - sPct
                 local sAt = parseIso(sMetric.reset_at)
-                local sRemainingSecs = sAt and math.max(1, sAt - os.time()) or 18000
+                local sStarted = isSessionStarted(sMetric)
                 local sWindow = tonumber(sMetric.window_secs) or 18000
-                local sElapsedRatio = math.min(1.0, math.max(0.0, (sWindow - sRemainingSecs) / sWindow))
+                local sRemainingSecs = (sStarted and sAt and sAt > os.time())
+                    and math.max(1, sAt - os.time())
+                    or (sStarted and 1 or sWindow)
+                local sElapsedRatio = sStarted
+                    and math.min(1.0, math.max(0.0, (sWindow - sRemainingSecs) / sWindow))
+                    or 0.0
 
                 if sFree >= 15 and sPct < 100 then
                     local baseScore = sFree * (1.0 + 2.5 * (sElapsedRatio * sElapsedRatio))
@@ -1276,7 +1296,7 @@ local function findBestPick(modelItems)
                         weeklyContext = string.format("weekly reset in %s · %d%% to use!", formatSeconds(wRemainingSecs), wFree)
                     end
 
-                    local isUrgent = sRemainingSecs <= 3600 or (sElapsedRatio >= 0.70 and sFree >= 40)
+                    local isUrgent = sStarted and (sRemainingSecs <= 3600 or (sElapsedRatio >= 0.70 and sFree >= 40))
                     if hasWeekly and wRemainingSecs <= 86400 and wFree >= 35 then
                         isUrgent = true
                     end
@@ -1484,7 +1504,14 @@ local function renderMetricCard(item, metric, windowLabel)
     local showValue = value ~= "" and value ~= string.format("%d%%", percent)
 
     local resetTimeText = formatResetTime(metric, windowLabel)
-    local leftDuration = countdown(metric)
+    local leftDuration = ""
+    if windowLabel == "7d" or isSessionStarted(metric) then
+        leftDuration = countdown(metric)
+        if (leftDuration == "now" or leftDuration == noctalia.tr("ui.now"))
+            and windowLabel ~= "7d" and not isSessionStarted(metric) then
+            leftDuration = ""
+        end
+    end
     local resetTooltip = leftDuration ~= "" and ("Renews in " .. leftDuration) or nil
 
     local elapsedPct = calculateElapsed(metric, windowLabel)
@@ -1622,8 +1649,8 @@ local function renderMetricCard(item, metric, windowLabel)
     end
 
     local ksTarget = kickstartTarget(item)
-    local isFresh = not isWeekly and (percent == 0 or (triage and triage.status == "fresh"))
-    if isFresh and ksTarget ~= nil then
+    local canKickstart = not isWeekly and ksTarget ~= nil and not isSessionStarted(metric) and percent == 0
+    if canKickstart then
         local isBusy = kickstarting[ksTarget] == true
         bottomRowElements[#bottomRowElements + 1] = ui.button({
             glyph = isBusy and "loader-2" or "bolt",
@@ -1807,8 +1834,12 @@ local function renderColumns(candidates)
         sessionItems[#sessionItems + 1] = item
     end
     table.sort(sessionItems, function(a, b)
-        local aReset = parseIso(a.sessionMetric and a.sessionMetric.reset_at) or math.huge
-        local bReset = parseIso(b.sessionMetric and b.sessionMetric.reset_at) or math.huge
+        local aStarted = isSessionStarted(a.sessionMetric)
+        local bStarted = isSessionStarted(b.sessionMetric)
+        local aAt = parseIso(a.sessionMetric and a.sessionMetric.reset_at)
+        local bAt = parseIso(b.sessionMetric and b.sessionMetric.reset_at)
+        local aReset = (aStarted and aAt and aAt > os.time()) and aAt or math.huge
+        local bReset = (bStarted and bAt and bAt > os.time()) and bAt or math.huge
         if aReset ~= bReset then
             return aReset < bReset
         end
