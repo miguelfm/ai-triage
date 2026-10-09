@@ -1,193 +1,99 @@
 # AI Triage
 
-**AI Triage** is an intelligent AI quota monitoring, triage routing, and rolling session management plugin for the [Noctalia](https://noctalia.dev) Wayland shell.
+AI Triage is an intelligent AI quota monitoring, smart routing, and rolling session triage plugin for the Noctalia Wayland shell.
 
-Built on top of the telemetry engine provided by [`ai-usagebar`](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
+Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
----
-
-## ✨ Features
-
-- 🎯 **Cross-Weighted Best Pick Engine**:
-  - Automatically identifies and recommends the optimal model to route prompts to.
-  - Dynamically balances **5-hour rolling session headroom** against **7-day weekly consumption health**.
-  - Penalizes models risking weekly starvation (e.g., $<15\%$ free or $\le -15\text{pts}$ behind pace).
-  - Boosts models with healthy weekly pace ($\ge 60\%$ headroom) and increases urgency when weekly reset is near ($<36$h) with unspent quota.
-  - Transparent banner displaying the exact decision rationale and current pace stats.
-
-- ⚡ **Interactive Rolling Window Kickstart (`ai-kickstart`)**:
-  - Provider 5-hour quota windows only start ticking once you send the first prompt.
-  - Cards with 0% usage display an interactive **`[⚡ Start 5h]`** button.
-  - Triggers a minimal 1-token probe via `ai-kickstart` to start the clock at the beginning of your work block and issues desktop notifications upon priming.
-
-- 📊 **Visual Gauge with Live Time Needle**:
-  - Dual-layer bar indicating both consumed quota and elapsed time.
-  - Real-time time needle marker continuously ticks down with active countdowns.
-  - Immediate visual contrast: consumption bars ahead of the needle indicate excessive consumption rate.
-
-- 🏷️ **Smart Triage Badging**:
-  - Instant status pills on model cards: `Optimal`, `Safe`, `Low`, `Critical`, `Starved`, and `Fresh`.
-  - Hover tooltips provide detailed pace breakdown (e.g., `43% free · 9pts under`).
-
-- 🖥️ **Compact, High-Density Dashboard**:
-  - Streamlined 710px vertical geometry, eliminating dead space.
-  - Quick multi-provider tab switcher (Anthropic, OpenAI, Antigravity, and community providers).
-  - Provider dashboard shortcuts with `xdg-open`.
-
-- ⚡ **Zero-Overhead Headless Architecture**:
-  - A single lightweight Luau daemon poller handles updates across all bars and panels.
-  - Fully decoupled and independent from upstream community plugins.
-
----
-
-## 📦 Plugin Information
+## Plugin
 
 | Field | Value |
 | --- | --- |
-| **ID** | `miguelfm/ai-triage` |
-| **Author** | `miguelfm` |
-| **Plugin API** | `22` |
-| **Entries** | Widget: `bar`, Panel: `panel`, Service: `poller` |
-| **Dependencies** | `ai-usagebar`, `xdg-open`, `ai-kickstart` (optional, for session priming) |
+| ID | `miguelfm/ai-triage` |
+| Entries | Bar widget: `bar`; panel: `panel`; service: `poller` |
 
----
+## Requirements
 
-## 🚀 Installation & Setup
+Install `ai-usagebar` on `PATH`. The plugin runs it by name and has no separate
+path setting. It ships as `ai-usagebar-bin` on the AUR, and as release
+tarballs on the project's GitHub Releases page. Configure your providers once in
+`~/.config/ai-usagebar/config.toml`; the CLI manages credentials and provider
+connections.
 
-### 1. Requirements
+When the CLI is missing or provider dashboards are clicked, the panel opens URLs
+with `xdg-open`. Install `xdg-open` alongside `ai-usagebar`.
 
-Ensure `ai-usagebar` is installed and available on your `$PATH`:
-- Arch Linux (AUR): `yay -S ai-usagebar-bin`
-- Or download the binary from [ai-usagebar Releases](https://github.com/akitaonrails/ai-usagebar/releases).
+The plugin requires Noctalia plugin API 22 for `require()`.
 
-Configure your provider credentials in `~/.config/ai-usagebar/config.toml`.
+For the interactive rolling session kickstart feature, ensure `bin/ai-kickstart` is
+accessible or placed on your PATH (e.g. `~/.local/bin/ai-kickstart`).
 
-*(Optional)* For the **Session Kickstart** feature, install or link `ai-kickstart` to `~/.local/bin/ai-kickstart`.
+## Features
 
-### 2. Install the Plugin
+- **Cross-Weighted Best Pick Engine**: Dynamically calculates the optimal model to route prompts to by balancing rolling 5-hour session headroom against 7-day weekly health and pace (severely penalizes models with $<15\%$ free or $\le -15\text{pts}$ behind pace; boosts models with healthy weekly pace and detects urgent resets with quota remaining).
+- **Interactive Session Priming (`ai-kickstart`)**: Providers with rolling windows (Claude, OpenAI, Antigravity) only start counting when the first prompt is sent. Cards with 0% usage display a `[⚡ Start 5h]` button that sends a minimal 1-token prompt to start the clock at the beginning of your workday.
+- **Dynamic Time Needle Marker**: The dual-layer gauge features a live needle marker that ticks with the active countdown, immediately showing whether token consumption is ahead or behind elapsed time.
+- **Triage Status Badges**: Real-time triage pills (`Optimal`, `Safe`, `Low`, `Critical`, `Starved`, `Fresh`) with detailed consumption pace tooltips on hover.
+- **Compact Geometry**: Optimized 710px vertical height with zero wasted screen space.
 
-Clone or copy this repository into your local Noctalia plugins directory:
+## Usage
 
-```bash
-mkdir -p ~/.config/noctalia/plugins
-git clone https://github.com/miguelfm/ai-triage.git ~/.config/noctalia/plugins/ai-triage
-```
+Add `miguelfm/ai-triage:bar` to a bar in Settings, Bar. The capsule shows
+one provider's headline reading beside its icon. Readings use the bar's text
+color, the theme's `secondary` color for high usage, and `error` for critical
+usage. Icons keep their normal color unless a read fails.
 
-### 3. Enable in Noctalia
+- **Left click**: Opens the AI Triage panel for the provider that capsule tracks.
+- **Right click**: Requests an immediate quota refresh via background poller.
+- **Middle click**: Opens widget settings.
 
-Enable the plugin via Noctalia IPC:
+To toggle or open the panel from a terminal or keybinding:
 
-```bash
-noctalia msg plugins enable miguelfm/ai-triage
-```
-
-Or configure it in `~/.local/state/noctalia/settings.toml`:
-
-```toml
-[plugin_settings."miguelfm/ai-triage"]
-panel_placement = "floating"
-refresh_minutes = 2
-
-[plugins]
-enabled = [ "miguelfm/ai-triage" ]
-
-# Add bar widgets to your status bar
-[widget.bar_claude]
-type = "miguelfm/ai-triage:bar"
-vendor = "anthropic"
-
-[widget.bar_openai]
-type = "miguelfm/ai-triage:bar"
-vendor = "openai"
-
-[widget.bar_antigravity]
-type = "miguelfm/ai-triage:bar"
-vendor = "antigravity"
-```
-
-Restart or reload Noctalia:
-
-```bash
-systemctl --user restart noctalia
-```
-
----
-
-## 🕹️ Interaction & Controls
-
-- **Left Click (Bar Capsule)**: Opens the AI Triage panel focused on that provider.
-- **Right Click (Bar Capsule)**: Triggers an immediate quota refresh via background poller.
-- **Middle Click (Bar Capsule)**: Opens widget settings.
-- **[⚡ Start 5h] Button (Panel)**: Fires a 1-token kickstart to begin the 5-hour rolling session.
-- **Keyboard Shortcuts (inside panel)**:
-  - `Escape`: Close panel.
-  - `r`: Force quota refresh.
-  - Arrow keys: Navigate providers.
-
-### IPC Commands
-
-Force an immediate background poll:
-```bash
-noctalia msg plugin miguelfm/ai-triage:poller all refresh
-```
-
-Toggle the triage panel:
-```bash
+```sh
 noctalia msg panel-toggle miguelfm/ai-triage:panel
 ```
 
-Select a specific provider in the panel:
-```bash
+Keyboard shortcuts inside the panel:
+- `Escape`: Close panel.
+- `r`: Force quota refresh.
+- `Left` / `Right`: Navigate provider tabs.
+
+## Settings
+
+Plugin-level settings (shared across poller, capsules, and panel):
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `refresh_minutes` | `int` | `5` | Minutes between CLI calls (1 to 120). Countdowns tick locally in between. |
+
+Per-widget settings (configurable for each bar capsule):
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `vendor` | `select` | `auto` | Tracked provider (`auto`, `anthropic`, `openai`, `antigravity`, etc.). `auto` tracks the busiest plan. |
+| `account` | `string` | empty | Optional named account label from the CLI config. |
+| `visualization` | `select` | `gauge` | Visual indicator style: `gauge` or `none`. |
+| `show_value` | `bool` | `true` | Show percentage text. |
+| `show_glyph` | `bool` | `true` | Show provider icon. |
+| `glyph_position` | `select` | `before` | Icon position: `before` or `after`. |
+| `provider_limit` | `int` | `1` | Providers carried in one capsule (1 to 4). Only applies on `auto`. |
+| `extras` | `select` | `countdown` | Auxiliary info beside percentage: `countdown`, `pace`, `both`, or `none`. |
+| `show_name` | `bool` | `false` | Show provider name beside reading. |
+| `color_by_usage` | `bool` | `true` | Color readings according to quota severity. |
+
+## IPC
+
+Force an immediate quota check without waiting for the polling interval:
+
+```sh
+noctalia msg plugin miguelfm/ai-triage:poller all refresh
+```
+
+Point the panel at a specific provider:
+
+```sh
 noctalia msg plugin miguelfm/ai-triage:poller all select anthropic
 ```
 
----
-
-## ⚙️ Configuration Reference
-
-### Plugin Settings
-
-| Setting | Type | Default | Description |
-| --- | --- | --- | --- |
-| `refresh_minutes` | `int` | `5` | Interval in minutes between quota checks (1–120). |
-
-### Widget (`bar`) Settings
-
-| Setting | Type | Default | Description |
-| --- | --- | --- | --- |
-| `vendor` | `select` | `auto` | Tracked provider (`auto`, `anthropic`, `openai`, `antigravity`, etc.). |
-| `account` | `string` | `""` | Optional named account label from CLI config. |
-| `visualization` | `select` | `gauge` | Visual indicator style: `gauge` or `none`. |
-| `show_value` | `bool` | `true` | Show numeric usage percentage. |
-| `show_glyph` | `bool` | `true` | Display provider icon. |
-| `glyph_position` | `select` | `before` | Position of icon: `before` or `after`. |
-| `provider_limit` | `int` | `1` | Max providers shown per widget when set to `auto` (1–4). |
-| `extras` | `select` | `countdown` | Auxiliary info: `countdown`, `pace`, `both`, or `none`. |
-| `show_name` | `bool` | `false` | Display provider name. |
-| `color_by_usage` | `bool` | `true` | Colorize capsule based on usage severity. |
-
----
-
-## 🧪 Testing
-
-Run test suites from the plugin directory:
-
-```bash
-lua tests/scrub_test.lua
-lua tests/refresh_test.lua
-lua tests/bar_test.lua
-lua tests/panel_test.lua
-TZ=America/New_York lua tests/shared_test.lua
-```
-
-You can also run the Noctalia plugin linter:
-```bash
-noctalia plugins lint ~/.config/noctalia/plugins/ai-triage
-```
-
----
-
-## 📄 License
+## License
 
 MIT © [miguelfm](https://github.com/miguelfm)
-Based on original UI components from [felipeartur/ai-usagebar](https://github.com/felipeartur) and CLI telemetry by [akitaonrails/ai-usagebar](https://github.com/akitaonrails/ai-usagebar).
