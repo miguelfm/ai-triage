@@ -9,6 +9,7 @@ description = "AI quota triage, smart model routing and rolling window kickstart
 tags = ["bar", "panel", "ai", "indicator", "utility"]
 # The CLI owns credentials, vendor endpoints and caching. This plugin only runs
 # `ai-usagebar usage --json` and draws the result.
+# Optional backend CLIs for `bin/ai-kickstart`: `claude`, `codex`, `agy`.
 dependencies = ["ai-usagebar", "xdg-open"]
 
 # ── Plugin-level settings (shared by the poller, every capsule and the panel) ──

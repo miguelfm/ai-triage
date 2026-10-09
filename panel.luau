@@ -1447,13 +1447,29 @@ local function kickstartWindow(target)
         render()
     end
     if type(noctalia.runAsync) == "function" then
-        noctalia.runAsync("ai-kickstart " .. target, function()
+        local launched = noctalia.runAsync("ai-kickstart " .. target, function(result)
             kickstarting[target] = nil
-            requestRefresh()
+            local ok = result == nil or result == true or result.exitCode == 0
+            if ok then
+                requestRefresh()
+            else
+                if type(noctalia.notifyError) == "function" then
+                    noctalia.notifyError("AI Kickstart", "Failed to start 5h session for " .. tostring(target) .. ". Check backend CLI.")
+                end
+            end
             if type(render) == "function" then
                 render()
             end
         end)
+        if launched == false then
+            kickstarting[target] = nil
+            if type(noctalia.notifyError) == "function" then
+                noctalia.notifyError("AI Kickstart", "Host refused to execute ai-kickstart.")
+            end
+            if type(render) == "function" then
+                render()
+            end
+        end
     else
         kickstarting[target] = nil
     end

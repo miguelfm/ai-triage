@@ -223,4 +223,19 @@ local startButtons4 = buttonsWithText(panelTree4, "Start 5h")
 assert(#startButtons4 == 0,
     "Non-kickstart provider (openrouter) must not display Start 5h button. Got: " .. #startButtons4)
 
+-- Test scenario 5: Host refuses launch (runAsync returns false)
+-- Verifies that kickstarting[target] is cleared and a second click is permitted
+local runAsyncCalls = 0
+mockNoctalia.runAsync = function(cmd, cb)
+    runAsyncCalls = runAsyncCalls + 1
+    return false
+end
+local panelTree5 = loadPanelWithReport(testReport)
+local startBtns5 = buttonsWithText(panelTree5, "Start 5h")
+assert(#startBtns5 == 1, "Expected 1 'Start 5h' button initially")
+startBtns5[1].props.onClick()
+assert(runAsyncCalls == 1, "runAsync should have been called once on first click")
+startBtns5[1].props.onClick()
+assert(runAsyncCalls == 2, "Second click must produce a second launch attempt when runAsync returned false")
+
 io.write("ok: all 5h session initiation scenarios and kickstart button tests passed!\n")

@@ -24,8 +24,12 @@ with `xdg-open`. Install `xdg-open` alongside `ai-usagebar`.
 
 The plugin requires Noctalia plugin API 22 for `require()`.
 
-For the interactive rolling session kickstart feature, ensure `bin/ai-kickstart` is
-accessible or placed on your PATH (e.g. `~/.local/bin/ai-kickstart`).
+For the interactive rolling session kickstart feature (`[⚡ Start 5h]`), ensure `bin/ai-kickstart` is
+accessible or placed on your PATH (e.g. `~/.local/bin/ai-kickstart`). The helper triggers rolling sessions via provider-specific CLI tools:
+- `claude` (Anthropic Claude Code CLI) for Claude
+- `codex` (OpenAI Codex CLI) for Codex
+- `agy` (Antigravity CLI) for Gemini and Claude & GPT OSS
+Install the respective CLI for any backend provider you wish to prime.
 
 ## Features
 
