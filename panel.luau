@@ -1427,7 +1427,7 @@ local function kickstartWindow(target)
         render()
     end
     if type(noctalia.runAsync) == "function" then
-        noctalia.runAsync("/home/miguel/.local/bin/ai-kickstart " .. target, function()
+        noctalia.runAsync("ai-kickstart " .. target, function()
             kickstarting[target] = nil
             requestRefresh()
             if type(render) == "function" then
