@@ -533,6 +533,54 @@ assert(agyBars[2].props.height == 3 and agyBars[2].props.progress == 0.80, "Gemi
 assert(agyBars[3].props.height == 6 and agyBars[3].props.progress == 0.40, "Claude top bar is 5h")
 assert(agyBars[4].props.height == 3 and agyBars[4].props.progress == 1.0, "Claude bottom bar is weekly")
 
+local geminiBar = loadBar({ vendor = "gemini", visualization = "gauge" }, {
+    entries = {
+        {
+            id = "antigravity",
+            display_name = "Antigravity",
+            status = "ready",
+            metrics = {
+                { label = "Gemini", percent = 15, window_secs = 18000 },
+                { label = "Claude & GPT OSS", percent = 40, window_secs = 18000 },
+                { label = "Gemini", percent = 80, window_secs = 604800 },
+                { label = "Claude & GPT OSS", percent = 100, window_secs = 604800 },
+            },
+        },
+    },
+})
+local geminiBars = findAllNodes(geminiBar.rendered(), function(n) return n.kind == "progress" end)
+assert(#geminiBars == 2, "vendor=gemini should only render 2 progress bars (Gemini 5h and weekly)")
+assert(geminiBars[1].props.progress == 0.15, "Gemini top bar is 15%")
+assert(geminiBars[2].props.progress == 0.80, "Gemini weekly bar is 80%")
+assert(containsText(geminiBar.rendered(), "15%"), "Gemini capsule should show 15%")
+assert(not containsText(geminiBar.rendered(), "40%"), "Gemini capsule should NOT show Claude 40%")
+geminiBar.env.onClick()
+assert(geminiBar.values.selected == "gemini", "clicking vendor=gemini widget must set selected to 'gemini'")
+
+local claudeOssBar = loadBar({ vendor = "claude-oss", visualization = "gauge" }, {
+    entries = {
+        {
+            id = "antigravity",
+            display_name = "Antigravity",
+            status = "ready",
+            metrics = {
+                { label = "Gemini", percent = 15, window_secs = 18000 },
+                { label = "Claude & GPT OSS", percent = 40, window_secs = 18000 },
+                { label = "Gemini", percent = 80, window_secs = 604800 },
+                { label = "Claude & GPT OSS", percent = 60, window_secs = 604800 },
+            },
+        },
+    },
+})
+local claudeOssBars = findAllNodes(claudeOssBar.rendered(), function(n) return n.kind == "progress" end)
+assert(#claudeOssBars == 2, "vendor=claude-oss should only render 2 progress bars (Claude 5h and weekly)")
+assert(claudeOssBars[1].props.progress == 0.40, "Claude top bar is 40%")
+assert(claudeOssBars[2].props.progress == 0.60, "Claude weekly bar is 60%")
+assert(containsText(claudeOssBar.rendered(), "40%"), "Claude-OSS capsule should show 40%")
+assert(not containsText(claudeOssBar.rendered(), "15%"), "Claude-OSS capsule should NOT show Gemini 15%")
+claudeOssBar.env.onClick()
+assert(claudeOssBar.values.selected == "claude-oss", "clicking vendor=claude-oss widget must set selected to 'claude-oss'")
+
 -- A balance-only provider has no percentage to draw: the capsule prints its
 -- balance where a quota vendor prints a percentage, and keeps its identity mark.
 local balanceBar = loadBar({ vendor = "deepseek", extras = "countdown", visualization = "gauge" }, {

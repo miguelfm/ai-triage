@@ -59,8 +59,10 @@
         "anthropic": "Claude",
         "anthropic_api": "API da Anthropic",
         "auto": "Automático (primário)",
+        "claude_oss": "Claude & GPT OSS",
         "cursor": "Cursor",
         "deepseek": "DeepSeek",
+        "gemini": "Gemini",
         "grok": "Grok",
         "kilo": "Quilo"
       }

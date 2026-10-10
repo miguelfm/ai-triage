@@ -61,6 +61,14 @@ local function shown()
                 return { entry }, 0
             end
         end
+        if wanted == "gemini" or wanted == "claude-oss" or wanted == "claude_oss" then
+            for _, entry in ipairs(all) do
+                if baseProvider(entry.id) == "antigravity" then
+                    if unavailable(entry) and not shared.readFailure(entry) then return {}, 0 end
+                    return { entry }, 0
+                end
+            end
+        end
         return {}, 0
     end
 
@@ -127,6 +135,10 @@ local function pinnedDown()
     local wanted = wantedEntryId()
     for _, entry in ipairs(entries()) do
         if entry.id == wanted and unavailable(entry) then return entry end
+        if (wanted == "gemini" or wanted == "claude-oss" or wanted == "claude_oss")
+            and baseProvider(entry.id) == "antigravity" and unavailable(entry) then
+            return entry
+        end
     end
     return nil
 end
@@ -142,6 +154,8 @@ end
 -- capsules on two accounts are the same product, and the suffix is what tells
 -- them apart. Fixed for that capsule, so it costs no width between reads.
 local function shortName(entry)
+    if vendor == "gemini" then return "Gemini" end
+    if vendor == "claude-oss" or vendor == "claude_oss" then return "Claude & GPT OSS" end
     local name = tostring(entry.display_name or entry.name or entry.id or "")
     if vendor ~= "auto" and account ~= "" then return name end
     -- Anywhere else it is the panel's business: under "auto" a name that gains
@@ -254,6 +268,21 @@ local function chip(entry, flagged, isVert)
     -- would shove the neighbouring widget once per cycle. The tooltip still
     -- spells the failure out.
     local submodels = modelHeadlines(entry)
+    if vendor == "gemini" then
+        local filtered = {}
+        for _, m in ipairs(submodels) do
+            if m.model:lower():find("gemini") then filtered[#filtered + 1] = m end
+        end
+        submodels = filtered
+    elseif vendor == "claude-oss" or vendor == "claude_oss" then
+        local filtered = {}
+        for _, m in ipairs(submodels) do
+            if m.model:lower():find("claude") or m.model:lower():find("oss") then
+                filtered[#filtered + 1] = m
+            end
+        end
+        submodels = filtered
+    end
     local hasSubmodels = #submodels > 0
 
     local glyph = (showGlyph and not hasSubmodels)
@@ -447,6 +476,21 @@ local function tooltip(picked, hidden)
             rows[#rows + 1] = { key = title, value = tostring(entry.error or noctalia.tr("ui.unavailable")) }
         else
             local submodels = modelHeadlines(entry)
+            if vendor == "gemini" then
+                local filtered = {}
+                for _, m in ipairs(submodels) do
+                    if m.model:lower():find("gemini") then filtered[#filtered + 1] = m end
+                end
+                submodels = filtered
+            elseif vendor == "claude-oss" or vendor == "claude_oss" then
+                local filtered = {}
+                for _, m in ipairs(submodels) do
+                    if m.model:lower():find("claude") or m.model:lower():find("oss") then
+                        filtered[#filtered + 1] = m
+                    end
+                end
+                submodels = filtered
+            end
             if #submodels > 0 then
                 for _, item in ipairs(submodels) do
                     local mMetrics = type(item.metrics) == "table" and item.metrics or { item.metric }
@@ -552,7 +596,13 @@ end)
 function onClick()
     local picked = shown()
     -- One panel serves every capsule and is not told which one opened it.
-    noctalia.state.set("selected", picked[1] ~= nil and picked[1].id or wantedEntryId())
+    local targetId = picked[1] ~= nil and picked[1].id or wantedEntryId()
+    if vendor == "gemini" then
+        targetId = "gemini"
+    elseif vendor == "claude-oss" or vendor == "claude_oss" then
+        targetId = "claude-oss"
+    end
+    noctalia.state.set("selected", targetId)
     noctalia.togglePanel("miguelfm/ai-triage:panel")
 end
 

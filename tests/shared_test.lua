@@ -252,4 +252,78 @@ assert(shared.balanceText({ id = "deepseek", metrics = {}, sections = {
     { type = "text", label = "Balance", value = "credentials error: no API key" },
 } }) == nil, "an error line is not a balance")
 
-io.write("ok: shared timestamps, availability, and provider order\n")
+-- ── Mathematical triage optimization tests ──────────────────────────────────
+local function isoIn(secondsAhead)
+    return os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + secondsAhead)
+end
+
+-- 1. Hard constraints / lockouts
+local unavailItem = { entry = { status = "error" }, sessionMetric = { percent = 0 }, weeklyMetric = { percent = 0 } }
+assert(shared.calculateModelTriageScore(unavailItem) == -1000, "unavailable model must receive -1000")
+
+local weeklyExhaustedItem = {
+    entry = { status = "ready" },
+    sessionMetric = { percent = 10 },
+    weeklyMetric = { percent = 100 },
+}
+assert(shared.calculateModelTriageScore(weeklyExhaustedItem) <= -500, "100% weekly exhausted must lockout <= -500")
+
+local sessionExhaustedItem = {
+    entry = { status = "ready" },
+    sessionMetric = { percent = 100 },
+    weeklyMetric = { percent = 50 },
+}
+assert(shared.calculateModelTriageScore(sessionExhaustedItem) <= -300, "100% session exhausted must lockout <= -300")
+
+-- 2. Weekly reset imminence bonus (Double-quota opportunity)
+-- An item with weekly reset in 12h vs 5 days, same 30% free weekly quota:
+local weeklyImminent = {
+    entry = { status = "ready" },
+    sessionMetric = { percent = 0, window_secs = 18000, reset_at = nil },
+    weeklyMetric = { percent = 70, window_secs = 604800, reset_at = isoIn(12 * 3600) },
+}
+local weeklyFar = {
+    entry = { status = "ready" },
+    sessionMetric = { percent = 0, window_secs = 18000, reset_at = nil },
+    weeklyMetric = { percent = 70, window_secs = 604800, reset_at = isoIn(120 * 3600) },
+}
+local scoreImminent = shared.calculateModelTriageScore(weeklyImminent)
+local scoreFar = shared.calculateModelTriageScore(weeklyFar)
+assert(scoreImminent > scoreFar,
+    string.format("imminent weekly reset (%f) must outrank far reset (%f) to enable double-quota consumption", scoreImminent, scoreFar))
+
+-- 3. Session pacing: active session expiring soon with unused quota
+local sessionExpiringSoon = {
+    entry = { status = "ready" },
+    sessionMetric = { percent = 5, window_secs = 18000, reset_at = isoIn(20 * 60) }, -- 20 min left, 95% free
+    weeklyMetric = { percent = 30, window_secs = 604800, reset_at = isoIn(80 * 3600) },
+}
+local sessionJustStarted = {
+    entry = { status = "ready" },
+    sessionMetric = { percent = 5, window_secs = 18000, reset_at = isoIn(280 * 60) }, -- 4h 40m left, 95% free
+    weeklyMetric = { percent = 30, window_secs = 604800, reset_at = isoIn(80 * 3600) },
+}
+local scoreExpiring = shared.calculateModelTriageScore(sessionExpiringSoon)
+local scoreJustStarted = shared.calculateModelTriageScore(sessionJustStarted)
+assert(scoreExpiring > scoreJustStarted,
+    string.format("session about to expire with quota (%f) must be prioritized over freshly started (%f)", scoreExpiring, scoreJustStarted))
+
+-- 4. Coupling between weekly health and session consumption:
+-- Given two models with identical 5h session metrics, the one with ample weekly headroom
+-- must heavily outrank the one at risk of weekly starvation.
+local modelHealthyWeekly = {
+    entry = { status = "ready" },
+    sessionMetric = { percent = 20, window_secs = 18000, reset_at = isoIn(3 * 3600) },
+    weeklyMetric = { percent = 20, window_secs = 604800, reset_at = isoIn(100 * 3600) }, -- 80% weekly free
+}
+local modelDepletedWeekly = {
+    entry = { status = "ready" },
+    sessionMetric = { percent = 20, window_secs = 18000, reset_at = isoIn(3 * 3600) },
+    weeklyMetric = { percent = 92, window_secs = 604800, reset_at = isoIn(100 * 3600) }, -- only 8% weekly free with 4 days to go!
+}
+local scoreHealthy = shared.calculateModelTriageScore(modelHealthyWeekly)
+local scoreDepleted = shared.calculateModelTriageScore(modelDepletedWeekly)
+assert(scoreHealthy > scoreDepleted * 3,
+    string.format("healthy weekly quota (%f) must dominate depleted weekly quota (%f)", scoreHealthy, scoreDepleted))
+
+io.write("ok: shared timestamps, availability, provider order, and mathematical triage score\n")

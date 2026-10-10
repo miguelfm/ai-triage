@@ -15,6 +15,7 @@ local countdown, resetClock = shared.countdown, shared.resetClock
 local ratio, headline, severityRole = shared.ratio, shared.headline, shared.severityRole
 local modelHeadlines, isCritical, dualMetrics = shared.modelHeadlines, shared.isCritical, shared.dualMetrics
 local isSessionStarted = shared.isSessionStarted
+local calculateModelTriageScore = shared.calculateModelTriageScore
 local modelGlyph = shared.modelGlyph
 local modelDisplayName = shared.modelDisplayName
 local elapsedPercent, pace = shared.elapsedPercent, shared.pace
@@ -60,6 +61,10 @@ local function currentEntry()
     for _, entry in ipairs(entries()) do
         if configured(entry) then
             if entry.id == wanted then return entry end
+            if (wanted == "gemini" or wanted == "claude-oss" or wanted == "claude_oss")
+                and shared.baseProvider(entry.id) == "antigravity" then
+                return entry
+            end
             if first == nil then first = entry end
         end
     end
@@ -75,12 +80,6 @@ local function updatedText(entry)
 end
 
 -- ── Cards ─────────────────────────────────────────────────────────────────────
-
-local function severityWord(section)
-    local severity = tostring(section and section.severity or "")
-    if severity ~= "high" and severity ~= "critical" then return nil end
-    return noctalia.tr("ui.severity." .. severity)
-end
 
 -- One reading, without the card around it. `title` names it: the metric's own
 -- label, or the window's name inside a card that stacks a model's readings.
@@ -104,19 +103,8 @@ local function metricRows(section, title, muted)
 
     local displayTitle = tostring(title or "")
 
-    -- Title on the left; severity and percentage on the right.
+    -- Title on the left; percentage on the right.
     local rightMeta = {}
-    local word = severityWord(section)
-    if word ~= nil then
-        local sevRole = isCritical(section) and "error" or severityRole(section, "secondary")
-        rightMeta[#rightMeta + 1] = ui.row({
-            paddingH = 7, paddingV = 3, radius = 6, align = "center",
-            fill = sevRole .. "/0.20",
-        }, {
-            ui.label({ text = word, fontSize = 12, fontWeight = "bold", color = sevRole }),
-        })
-    end
-
     rightMeta[#rightMeta + 1] = ui.row({
         paddingH = 8, paddingV = 3, radius = 6, align = "center", justify = "center",
         fill = tint .. "/0.15",
@@ -922,14 +910,17 @@ local function collectModelItems(candidates)
             if #models > 0 then
                 for _, model in ipairs(models) do
                     local sMetric, wMetric = dualMetrics(model.metrics)
+                    local subId = (model.displayName == "Gemini" or tostring(model.name or ""):lower():find("gemini"))
+                        and "gemini"
+                        or "claude-oss"
                     items[#items + 1] = {
-                        providerId = id,
-                        providerName = displayName,
+                        providerId = subId,
+                        providerName = model.displayName,
                         plan = plan,
-                        providerGlyph = providerGlyph(id),
+                        providerGlyph = model.glyph,
                         name = model.displayName,
                         glyph = model.glyph,
-                        badge = "Antigravity",
+                        badge = nil,
                         sessionMetric = sMetric,
                         weeklyMetric = wMetric,
                         entry = entry,
@@ -1119,7 +1110,7 @@ local function formatSeconds(seconds)
     return string.format("%dm", rest)
 end
 
-local function assessTriage(metric, percent, elapsedPct, windowLabel)
+local function assessTriage(metric, percent, elapsedPct, windowLabel, item)
     if metric == nil or percent == nil then return nil end
     local isWeekly = windowLabel == "7d"
     local remainingQuota = 100 - percent
@@ -1127,7 +1118,11 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel)
     local remainingSecs = (at and at > os.time()) and (at - os.time()) or 0
     local paceDiff = (elapsedPct or 0) - percent
 
-    if percent >= 100 then
+    local wMetric = item and item.weeklyMetric
+    local wPct = wMetric and tonumber(wMetric.percent) or 0
+    local isWeeklyExhausted = (wMetric ~= nil and wPct >= 100)
+
+    if percent >= 100 or isWeeklyExhausted then
         return {
             status = "exhausted",
             label = "Exhausted",
@@ -1136,7 +1131,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel)
             bg = "error/0.18",
             border = "error/0.45",
             cardBorder = "error/0.45",
-            summary = "Quota depleted",
+            summary = isWeeklyExhausted and "Weekly quota depleted" or "Quota depleted",
         }
     end
 
@@ -1170,7 +1165,11 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel)
             shouldBurn = true
         end
     else
-        if remainingSecs <= 216000 and remainingQuota >= 35 and remainingSecs > 0 then
+        if remainingSecs <= 86400 and remainingQuota >= 15 and remainingSecs > 0 then
+            shouldBurn = true
+        elseif remainingSecs <= 172800 and remainingQuota >= 25 and remainingSecs > 0 then
+            shouldBurn = true
+        elseif remainingSecs <= 259200 and remainingQuota >= 35 and remainingSecs > 0 then
             shouldBurn = true
         elseif paceDiff >= 20 and remainingQuota >= 40 then
             shouldBurn = true
@@ -1216,211 +1215,9 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel)
     }
 end
 
-local function findBestPick(modelItems)
-    local best = nil
-    local bestScore = -1
-
-    for _, item in ipairs(modelItems) do
-        if not unavailable(item.entry) then
-            local sMetric = item.sessionMetric
-            local wMetric = item.weeklyMetric
-
-            -- Weekly health calculation for this model
-            local wFree = 100
-            local wPct = 0
-            local wRemainingSecs = 604800
-            local wPaceDiff = 0
-            local hasWeekly = false
-
-            if wMetric ~= nil then
-                hasWeekly = true
-                wPct = tonumber(wMetric.percent) or 0
-                wFree = 100 - wPct
-                local wAt = parseIso(wMetric.reset_at)
-                wRemainingSecs = wAt and math.max(1, wAt - os.time()) or 604800
-                local wElapsed = calculateElapsed(wMetric, "7d") or 50
-                wPaceDiff = wElapsed - wPct
-            end
-
-            -- Weekly multiplier / factor
-            local weeklyFactor = 1.0
-            local weeklyContext = ""
-
-            if hasWeekly then
-                if wPct >= 85 and wRemainingSecs > 43200 then
-                    -- Weekly exhaustion risk: heavy penalty to conserve
-                    weeklyFactor = 0.20
-                    weeklyContext = string.format("caution: %d%% weekly left", wFree)
-                elseif wPct >= 75 and wPaceDiff <= -15 and wRemainingSecs > 86400 then
-                    -- Burning weekly too fast: throttle
-                    weeklyFactor = 0.50
-                    weeklyContext = string.format("conserving: %dpts behind weekly pace", -wPaceDiff)
-                elseif wPaceDiff <= -10 and wRemainingSecs > 86400 then
-                    -- Moderately behind weekly pace
-                    weeklyFactor = 0.75
-                    weeklyContext = string.format("%dpts behind weekly pace", -wPaceDiff)
-                elseif wFree >= 60 and wPaceDiff >= 10 then
-                    -- Abundant weekly cushion: prioritize burning safely
-                    weeklyFactor = 1.30
-                    weeklyContext = string.format("healthy %d%% weekly headroom", wFree)
-                elseif wFree >= 40 and wPaceDiff >= 0 then
-                    -- Good weekly headroom
-                    weeklyFactor = 1.15
-                    weeklyContext = string.format("%d%% weekly headroom", wFree)
-                else
-                    weeklyContext = string.format("%d%% weekly free", wFree)
-                end
-            end
-
-            -- 1. Check Session (5h) candidate
-            if sMetric ~= nil then
-                local sPct = tonumber(sMetric.percent) or 0
-                local sFree = 100 - sPct
-                local sAt = parseIso(sMetric.reset_at)
-                local sStarted = isSessionStarted(sMetric)
-                local sWindow = tonumber(sMetric.window_secs) or 18000
-                local sRemainingSecs = (sStarted and sAt and sAt > os.time())
-                    and math.max(1, sAt - os.time())
-                    or (sStarted and 1 or sWindow)
-                local sElapsedRatio = sStarted
-                    and math.min(1.0, math.max(0.0, (sWindow - sRemainingSecs) / sWindow))
-                    or 0.0
-
-                if sFree >= 15 and sPct < 100 then
-                    local baseScore = sFree * (1.0 + 2.5 * (sElapsedRatio * sElapsedRatio))
-                    local finalScore = baseScore * weeklyFactor
-
-                    -- Weekly end-of-cycle boost: if weekly expires within 36h and has >30% free
-                    if hasWeekly and wRemainingSecs <= 129600 and wFree >= 30 then
-                        finalScore = finalScore + (wFree * 1.2)
-                        weeklyContext = string.format("weekly reset in %s · %d%% to use!", formatSeconds(wRemainingSecs), wFree)
-                    end
-
-                    local isUrgent = sStarted and (sRemainingSecs <= 3600 or (sElapsedRatio >= 0.70 and sFree >= 40))
-                    if hasWeekly and wRemainingSecs <= 86400 and wFree >= 35 then
-                        isUrgent = true
-                    end
-
-                    if finalScore > bestScore then
-                        bestScore = finalScore
-                        best = {
-                            item = item,
-                            metric = sMetric,
-                            window = "5h",
-                            windowLabel = "Session (5h)",
-                            free = sFree,
-                            percent = sPct,
-                            remainingSecs = sRemainingSecs,
-                            elapsedPct = math.floor(sElapsedRatio * 100),
-                            isUrgent = isUrgent,
-                            weeklyContext = weeklyContext,
-                        }
-                    end
-                end
-            end
-
-            -- 2. If no session metric exists, or weekly reset is approaching with high unused quota
-            if sMetric == nil and wMetric ~= nil and wFree >= 20 and wPct < 100 then
-                local wElapsedRatio = math.min(1.0, math.max(0.0, (wRemainingSecs <= 0 and 1 or (604800 - wRemainingSecs) / 604800)))
-                local weeklyScore = wFree * (0.8 + 1.2 * (wElapsedRatio * wElapsedRatio)) * weeklyFactor
-                if weeklyScore > bestScore then
-                    bestScore = weeklyScore
-                    best = {
-                        item = item,
-                        metric = wMetric,
-                        window = "7d",
-                        windowLabel = "Weekly (7d)",
-                        free = wFree,
-                        percent = wPct,
-                        remainingSecs = wRemainingSecs,
-                        elapsedPct = math.floor(wElapsedRatio * 100),
-                        isUrgent = wRemainingSecs <= 86400 and wFree >= 35,
-                        weeklyContext = weeklyContext,
-                    }
-                end
-            end
-        end
-    end
-
-    return best
-end
-
-local function renderBestPickBanner(best)
-    if best == nil then return nil end
-    local leftStr = formatSeconds(best.remainingSecs)
-    local actionLabel = best.isUrgent and "Priority pick" or "Recommended pick"
-    local actionRole = best.isUrgent and "error" or "primary"
-    local actionColor = best.isUrgent and "#fb923c" or "primary"
-    local actionGlyph = best.isUrgent and "flame" or "star"
-
-    local extraContext = (best.weeklyContext and best.weeklyContext ~= "")
-        and (" · " .. best.weeklyContext)
-        or ""
-
-    local reason = best.isUrgent
-        and string.format("%d%% free expiring in %s%s — use before reset!", best.free, leftStr, extraContext)
-        or string.format("%d%% free quota available (%s left%s)", best.free, leftStr, extraContext)
-
-    return ui.row({
-        gap = 8,
-        align = "center",
-        paddingH = 12,
-        paddingV = 5,
-        radius = 8,
-        fill = actionRole .. "/0.10",
-        border = actionRole .. "/0.28",
-        borderWidth = 1,
-    }, {
-        ui.row({
-            width = 24, height = 24, radius = 5,
-            fill = actionRole .. "/0.20", align = "center", justify = "center",
-        }, {
-            ui.glyph({ name = actionGlyph, size = 15, color = actionColor }),
-        }),
-        ui.label({
-            text = "Best pick now:",
-            fontSize = 15,
-            fontWeight = "bold",
-            color = "on_surface",
-        }),
-        ui.row({ gap = 6, align = "center" }, {
-            ui.glyph({ name = best.item.glyph, size = 15, color = actionColor }),
-            ui.label({
-                text = best.item.name .. (best.item.badge and (" [" .. best.item.badge .. "]") or ""),
-                fontSize = 15,
-                fontWeight = "bold",
-                color = actionColor,
-            }),
-            ui.label({
-                text = "· " .. best.windowLabel .. ":",
-                fontSize = 14,
-                color = "on_surface_variant",
-            }),
-            ui.label({
-                text = reason,
-                fontSize = 14,
-                fontWeight = "medium",
-                color = "on_surface",
-            }),
-        }),
-        ui.spacer({ flexGrow = 1 }),
-        ui.row({
-            gap = 5, align = "center",
-            paddingH = 7, paddingV = 2, radius = 5,
-            fill = actionRole .. "/0.18",
-        }, {
-            ui.glyph({ name = actionGlyph, size = 12, color = actionColor }),
-            ui.label({
-                text = actionLabel,
-                fontSize = 12,
-                fontWeight = "bold",
-                color = actionColor,
-            }),
-        }),
-    })
-end
 
 local kickstarting = {}
+local kickstartedAt = {}
 
 local function kickstartTarget(item)
     if item == nil then return nil end
@@ -1430,6 +1227,10 @@ local function kickstartTarget(item)
         return "claude"
     elseif id == "openai" or name:find("^codex") then
         return "codex"
+    elseif id == "gemini" or name:find("gemini") then
+        return "gemini"
+    elseif id == "claude-oss" or id == "claude_oss" or name:find("oss") then
+        return "claude-oss"
     elseif id == "antigravity" then
         if name:find("gemini") then
             return "gemini"
@@ -1447,14 +1248,19 @@ local function kickstartWindow(target)
         render()
     end
     if type(noctalia.runAsync) == "function" then
-        local launched = noctalia.runAsync("ai-kickstart " .. target, function(result)
+        local cmd = string.format('export PATH="$HOME/.local/bin:$PATH"; if [ -x "$HOME/.local/bin/ai-kickstart" ]; then exec "$HOME/.local/bin/ai-kickstart" %s; else exec ai-kickstart %s; fi', target, target)
+        local launched = noctalia.runAsync(cmd, function(result)
             kickstarting[target] = nil
             local ok = result == nil or result == true or result.exitCode == 0
             if ok then
+                kickstartedAt[target] = os.time()
                 requestRefresh()
             else
+                local err = (type(result) == "table" and type(result.stderr) == "string" and result.stderr ~= "")
+                    and result.stderr
+                    or ("Failed to start 5h session for " .. tostring(target) .. ". Check backend CLI.")
                 if type(noctalia.notifyError) == "function" then
-                    noctalia.notifyError("AI Kickstart", "Failed to start 5h session for " .. tostring(target) .. ". Check backend CLI.")
+                    noctalia.notifyError("AI Kickstart", err)
                 end
             end
             if type(render) == "function" then
@@ -1476,39 +1282,43 @@ local function kickstartWindow(target)
 end
 
 local function renderMetricCard(item, metric, windowLabel)
+    local isWeekly = windowLabel == "7d"
+    local isLongName = #item.name > 12
+
     local titleChildren = {
         ui.row({
-            width = 28, height = 28, radius = 6,
+            width = 24, height = 24, radius = 6,
             fill = "primary/0.14", align = "center", justify = "center",
         }, {
-            ui.glyph({ name = item.glyph, size = 17, color = "primary" }),
+            ui.glyph({ name = item.glyph, size = 14, color = "primary" }),
         }),
         ui.label({
             text = item.name,
-            fontSize = 17,
+            fontSize = isLongName and 14 or 15,
             fontWeight = "bold",
             color = "on_surface",
             maxLines = 1,
+            maxWidth = 165,
         }),
     }
     if item.badge then
         titleChildren[#titleChildren + 1] = ui.row({
-            paddingH = 6, paddingV = 2, radius = 5, fill = "primary/0.10",
+            paddingH = 4, paddingV = 1, radius = 4, fill = "primary/0.10",
         }, {
-            ui.label({ text = item.badge, fontSize = 12, fontWeight = "medium", color = "primary" }),
+            ui.label({ text = item.badge, fontSize = 10, fontWeight = "medium", color = "primary" }),
         })
     end
 
     if metric == nil or unavailable(item.entry) then
         local unavail = unavailable(item.entry)
         return ui.column(CARD, {
-            ui.row({ gap = 8, align = "center" }, {
-                ui.row({ gap = 7, align = "center" }, titleChildren),
+            ui.row({ gap = 6, align = "center" }, {
+                ui.row({ gap = 5, align = "center" }, titleChildren),
                 ui.spacer({ flexGrow = 1 }),
                 unavail and ui.row({ gap = 4, align = "center" }, {
-                    ui.glyph({ name = "alert-circle", size = 15, color = "error" }),
-                    ui.label({ text = noctalia.tr("ui.unavailable"), fontSize = 14, color = "error" }),
-                }) or ui.label({ text = "—", fontSize = 15, color = "on_surface_variant" }),
+                    ui.glyph({ name = "alert-circle", size = 14, color = "error" }),
+                    ui.label({ text = noctalia.tr("ui.unavailable"), fontSize = 13, color = "error" }),
+                }) or ui.label({ text = "—", fontSize = 14, color = "on_surface_variant" }),
             }),
         })
     end
@@ -1531,43 +1341,32 @@ local function renderMetricCard(item, metric, windowLabel)
     local resetTooltip = leftDuration ~= "" and ("Renews in " .. leftDuration) or nil
 
     local elapsedPct = calculateElapsed(metric, windowLabel)
-    local triage = assessTriage(metric, percent, elapsedPct, windowLabel)
+    local triage = assessTriage(metric, percent, elapsedPct, windowLabel, item)
 
     if triage ~= nil then
         titleChildren[#titleChildren + 1] = ui.row({
-            gap = 3, align = "center",
-            paddingH = 5, paddingV = 2, radius = 5,
+            gap = 2, align = "center",
+            paddingH = 4, paddingV = 1, radius = 4,
             fill = triage.bg, border = triage.border, borderWidth = 1,
             tooltip = triage.summary,
         }, {
-            ui.glyph({ name = triage.glyph, size = 11, color = triage.color }),
-            ui.label({ text = triage.label, fontSize = 11, fontWeight = "bold", color = triage.color }),
+            ui.glyph({ name = triage.glyph, size = 10, color = triage.color }),
+            ui.label({ text = triage.label, fontSize = 10, fontWeight = "bold", color = triage.color }),
         })
     end
 
     local rightMeta = {}
-    local word = severityWord(metric)
-    if word ~= nil then
-        local sevRole = isCritical(metric) and "error" or severityRole(metric, "secondary")
-        rightMeta[#rightMeta + 1] = ui.row({
-            paddingH = 7, paddingV = 3, radius = 6, align = "center",
-            fill = sevRole .. "/0.20",
-        }, {
-            ui.label({ text = word, fontSize = 13, fontWeight = "bold", color = sevRole }),
-        })
-    end
-
     if leftDuration ~= "" then
         local fgColor = countdownColor(metric)
         rightMeta[#rightMeta + 1] = ui.row({
-            gap = 5, align = "center",
-            paddingH = 4, paddingV = 2,
+            gap = 3, align = "center",
+            paddingH = 3, paddingV = 1,
         }, {
-            ui.glyph({ name = "clock", size = 14, color = fgColor }),
+            ui.glyph({ name = "clock", size = 12, color = fgColor }),
             ui.label({
                 text = leftDuration,
-                fontSize = 15,
-                fontWeight = "semibold",
+                fontSize = 13,
+                fontWeight = "medium",
                 color = fgColor,
                 maxLines = 1,
             }),
@@ -1575,22 +1374,21 @@ local function renderMetricCard(item, metric, windowLabel)
     end
 
     rightMeta[#rightMeta + 1] = ui.row({
-        paddingH = 8, paddingV = 3, radius = 6, align = "center", justify = "center",
+        paddingH = 6, paddingV = 2, radius = 5, align = "center", justify = "center",
         fill = tint .. "/0.15",
     }, {
-        ui.label({ text = string.format("%d%%", percent), fontSize = 18,
+        ui.label({ text = string.format("%d%%", percent), fontSize = 15,
                    fontWeight = "bold", color = tint, textAlign = "center" }),
     })
 
-    local isWeekly = windowLabel == "7d"
-    local cardPaddingH = isWeekly and 11 or 13
-    local cardPaddingV = isWeekly and 9 or 9
-    local cardGap = isWeekly and 6 or 6
+    local cardPaddingH = 10
+    local cardPaddingV = 8
+    local cardGap = 6
 
-    local topRow = ui.row({ gap = isWeekly and 8 or 6, align = "center" }, {
-        ui.row({ gap = 5, align = "center" }, titleChildren),
+    local topRow = ui.row({ gap = 4, align = "center" }, {
+        ui.row({ gap = 4, align = "center" }, titleChildren),
         ui.spacer({ flexGrow = 1 }),
-        ui.row({ gap = isWeekly and 8 or 6, align = "center", justify = "end" }, rightMeta),
+        ui.row({ gap = 5, align = "center", justify = "end" }, rightMeta),
     })
 
     local progressBar = ui.progress({
@@ -1646,17 +1444,17 @@ local function renderMetricCard(item, metric, windowLabel)
     local bottomRowElements = {}
     if resetTimeText ~= "" then
         bottomRowElements[#bottomRowElements + 1] = ui.row({
-            gap = 6, align = "center", justify = "center",
-            paddingH = isWeekly and 12 or 10,
-            paddingV = 3,
-            radius = 6,
+            gap = 5, align = "center", justify = "center",
+            paddingH = 8,
+            paddingV = 2,
+            radius = 5,
             fill = "on_surface/0.08",
         }, {
-            ui.glyph({ name = "clock", size = 16, color = "on_surface_variant" }),
+            ui.glyph({ name = "clock", size = 13, color = "on_surface_variant" }),
             ui.label({
                 text = resetTimeText,
-                fontSize = 16,
-                fontWeight = "semibold",
+                fontSize = 13,
+                fontWeight = "medium",
                 color = "on_surface",
                 textAlign = "center",
                 maxLines = 1,
@@ -1665,7 +1463,13 @@ local function renderMetricCard(item, metric, windowLabel)
     end
 
     local ksTarget = kickstartTarget(item)
-    local canKickstart = not isWeekly and ksTarget ~= nil and not isSessionStarted(metric) and percent == 0
+    local justKickstarted = ksTarget ~= nil and kickstartedAt[ksTarget] ~= nil
+        and (os.time() - kickstartedAt[ksTarget]) < 18000
+    local isWeeklyExhausted = (item and item.weeklyMetric ~= nil and (tonumber(item.weeklyMetric.percent) or 0) >= 100)
+    local canKickstart = not isWeekly and ksTarget ~= nil and not justKickstarted
+        and not isSessionStarted(metric) and percent == 0
+        and not isWeeklyExhausted
+        and not unavailable(item and item.entry)
     if canKickstart then
         local isBusy = kickstarting[ksTarget] == true
         bottomRowElements[#bottomRowElements + 1] = ui.button({
@@ -1844,51 +1648,38 @@ local function renderColumns(candidates)
     local modelItems = collectModelItems(candidates)
     local resetCredits = collectResetCredits(candidates)
 
-    -- Ordenar sesión por tempo de reseteo ascendente (menos tempo primeiro)
-    local sessionItems = {}
-    for _, item in ipairs(modelItems) do
-        sessionItems[#sessionItems + 1] = item
-    end
-    table.sort(sessionItems, function(a, b)
-        local aStarted = isSessionStarted(a.sessionMetric)
-        local bStarted = isSessionStarted(b.sessionMetric)
-        local aAt = parseIso(a.sessionMetric and a.sessionMetric.reset_at)
-        local bAt = parseIso(b.sessionMetric and b.sessionMetric.reset_at)
-        local aReset = (aStarted and aAt and aAt > os.time()) and aAt or math.huge
-        local bReset = (bStarted and bAt and bAt > os.time()) and bAt or math.huge
-        if aReset ~= bReset then
-            return aReset < bReset
+    -- Ordenar os modelos por triaxe (tendo en conta consumo e tempo horario e semanal)
+    table.sort(modelItems, function(a, b)
+        local aScore = calculateModelTriageScore(a)
+        local bScore = calculateModelTriageScore(b)
+        if math.abs(aScore - bScore) > 0.01 then
+            return aScore > bScore
+        end
+        local aSPct = a.sessionMetric and tonumber(a.sessionMetric.percent) or 0
+        local bSPct = b.sessionMetric and tonumber(b.sessionMetric.percent) or 0
+        if aSPct ~= bSPct then
+            return aSPct < bSPct
+        end
+        local aWPct = a.weeklyMetric and tonumber(a.weeklyMetric.percent) or 0
+        local bWPct = b.weeklyMetric and tonumber(b.weeklyMetric.percent) or 0
+        if aWPct ~= bWPct then
+            return aWPct < bWPct
         end
         return (a.name or "") < (b.name or "")
     end)
 
+    -- Ambas columnas seguen a mesma orde de triaxe:
+    -- ao lado da tarxeta horaria vai sempre a semanal do mesmo provedor/modelo
     local sessionCards = {}
-    for _, item in ipairs(sessionItems) do
-        local card = renderMetricCard(item, item.sessionMetric, "5h")
-        if card ~= nil then
-            sessionCards[#sessionCards + 1] = card
-        end
-    end
-
-    -- Ordenar semanal por tempo de reseteo ascendente (menos tempo primeiro)
-    local weeklyItems = {}
-    for _, item in ipairs(modelItems) do
-        weeklyItems[#weeklyItems + 1] = item
-    end
-    table.sort(weeklyItems, function(a, b)
-        local aReset = parseIso(a.weeklyMetric and a.weeklyMetric.reset_at) or math.huge
-        local bReset = parseIso(b.weeklyMetric and b.weeklyMetric.reset_at) or math.huge
-        if aReset ~= bReset then
-            return aReset < bReset
-        end
-        return (a.name or "") < (b.name or "")
-    end)
-
     local weeklyCards = {}
-    for _, item in ipairs(weeklyItems) do
-        local card = renderMetricCard(item, item.weeklyMetric, "7d")
-        if card ~= nil then
-            weeklyCards[#weeklyCards + 1] = card
+    for _, item in ipairs(modelItems) do
+        local sCard = renderMetricCard(item, item.sessionMetric, "5h")
+        if sCard ~= nil then
+            sessionCards[#sessionCards + 1] = sCard
+        end
+        local wCard = renderMetricCard(item, item.weeklyMetric, "7d")
+        if wCard ~= nil then
+            weeklyCards[#weeklyCards + 1] = wCard
         end
     end
 
@@ -1929,9 +1720,9 @@ local function renderColumns(candidates)
     local col2 = ui.column({
         key = "col-weekly",
         gap = 6,
-        flexGrow = 1.22,
+        flexGrow = 1.20,
         align = "stretch",
-        paddingH = 6,
+        paddingH = 4,
         paddingV = 2,
     }, {
         ui.row({ gap = 8, align = "center", paddingH = 4, paddingV = 2 }, {
@@ -1976,17 +1767,11 @@ local function renderColumns(candidates)
         col3,
     }
 
-    local bestPick = findBestPick(modelItems)
-    local bestPickBanner = renderBestPickBanner(bestPick)
-
     local mainChildren = {
         ui.row({ gap = 8, align = "center" }, topRowChildren),
         ui.separator({ orientation = "horizontal", color = "outline", opacity = 0.20 }),
+        ui.row({ gap = 12, flexGrow = 1, align = "stretch" }, columns),
     }
-    if bestPickBanner ~= nil then
-        mainChildren[#mainChildren + 1] = bestPickBanner
-    end
-    mainChildren[#mainChildren + 1] = ui.row({ gap = 12, flexGrow = 1, align = "stretch" }, columns)
 
     panel.render(ui.column({
         gap = 8,

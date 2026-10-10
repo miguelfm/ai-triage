@@ -69,6 +69,8 @@ options = [
   { value = "grok", label_key = "settings.vendor.option.grok" },
   { value = "supergrok", label_key = "settings.vendor.option.supergrok" },
   { value = "antigravity", label_key = "settings.vendor.option.antigravity" },
+  { value = "gemini", label_key = "settings.vendor.option.gemini" },
+  { value = "claude-oss", label_key = "settings.vendor.option.claude_oss" },
   { value = "cursor", label_key = "settings.vendor.option.cursor" },
   { value = "minimax", label_key = "settings.vendor.option.minimax" },
   { value = "kiro", label_key = "settings.vendor.option.kiro" },

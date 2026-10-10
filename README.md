@@ -33,11 +33,13 @@ Install the respective CLI for any backend provider you wish to prime.
 
 ## Features
 
-- **Cross-Weighted Best Pick Engine**: Dynamically calculates the optimal model to route prompts to by balancing rolling 5-hour session headroom against 7-day weekly health and pace (severely penalizes models with $<15\%$ free or $\le -15\text{pts}$ behind pace; boosts models with healthy weekly pace and detects urgent resets with quota remaining).
-- **Interactive Session Priming (`ai-kickstart`)**: Providers with rolling windows (Claude, OpenAI, Antigravity) only start counting when the first prompt is sent. Cards whose 5-hour session period has not yet been initiated display a `[⚡ Start 5h]` button that sends a minimal 1-token prompt to start the clock at the beginning of your workday. Once initiated, the button cleanly yields to the active countdown.
-- **Dynamic Time Needle Marker**: The dual-layer gauge features a live needle marker that ticks with the active countdown, immediately showing whether token consumption is ahead or behind elapsed time.
-- **Triage Status Badges**: Real-time triage pills (`Optimal`, `Safe`, `Low`, `Critical`, `Starved`, `Fresh`) with detailed consumption pace tooltips on hover.
-- **Compact Geometry**: Optimized 710px vertical height with zero wasted screen space.
+- **Multi-Provider & Antigravity Model Separation**: Full independent tracking for all supported providers, including dedicated cards and individual triage scoring for Antigravity's **Gemini** (Gemini 2.5 Pro / Flash) and **Claude & GPT OSS** (Claude 3.7 Sonnet, GPT-OSS) tiers.
+- **Mathematical Triage & Prioritization Engine**: Dynamically ranks providers using a continuous optimization model that balances 5-hour rolling session exhaustion against 7-day weekly pace. Prioritizes under-utilized quotas, boosts providers with upcoming weekly resets ($\le 48\text{h}$) to avoid wasting expiring allocations, and enforces hard lockouts for exhausted quotas.
+- **Interactive Session Priming (`ai-kickstart`)**: Providers with rolling windows (Claude, Codex, Antigravity) start their countdown when the first prompt is sent. The panel displays a `[⚡ Start 5h]` button to prime sessions at the start of your workday with a single click. Priming is automatically suppressed for providers whose weekly quotas are already depleted.
+- **Robust Rolling Window Detection**: Real-time detection of active rolling session clocks across all supported providers, ensuring countdowns and needle markers begin immediately upon usage.
+- **Streamlined Triage Panel**: An aligned, three-column ranking view displaying provider identity, dynamic urgency score, and real-time status badges (`⚡ Rush`, `🔥 Burn`, `⭐ Fresh`, `Optimal`, `Safe`, `Low`, `⊗ Exhausted`). The top row is always your optimal routing choice.
+- **Dynamic Time Needle Marker**: The dual-layer gauge features a live needle marker that ticks with the active countdown, visually indicating whether consumption is ahead or behind elapsed time.
+- **Compact Geometry**: Optimized 710px vertical height with clean spacing and tabbed provider inspection.
 
 ## Usage
 
@@ -73,7 +75,7 @@ Per-widget settings (configurable for each bar capsule):
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `vendor` | `select` | `auto` | Tracked provider (`auto`, `anthropic`, `openai`, `antigravity`, etc.). `auto` tracks the busiest plan. |
+| `vendor` | `select` | `auto` | Tracked provider (`auto`, `anthropic`, `openai`, `gemini`, `claude-oss`, `antigravity`, etc.). `auto` tracks the busiest plan. |
 | `account` | `string` | empty | Optional named account label from the CLI config. |
 | `visualization` | `select` | `gauge` | Visual indicator style: `gauge` or `none`. |
 | `show_value` | `bool` | `true` | Show percentage text. |

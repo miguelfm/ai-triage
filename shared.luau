@@ -30,6 +30,8 @@ local PROVIDER_GLYPHS = {
     commandcode = "terminal-2",
     copilot = "brand-github-copilot",
     gemini = "brand-google",
+    ["claude-oss"] = "robot",
+    ["claude_oss"] = "robot",
 }
 
 local PROVIDER_DASHBOARDS = {
@@ -48,6 +50,8 @@ local PROVIDER_DASHBOARDS = {
     copilot = "https://github.com/settings/copilot",
     minimax = "https://platform.minimaxi.com/",
     antigravity = "https://antigravity.google/",
+    ["claude-oss"] = "https://antigravity.google/",
+    ["claude_oss"] = "https://antigravity.google/",
     kilo = "https://app.kilo.ai/usage",
     novita = "https://novita.ai/console",
     kiro = "https://app.kiro.dev/",
@@ -251,28 +255,68 @@ end
 -- Whether a 5h rolling session has actively started consumption/countdown.
 function M.isSessionStarted(metric)
     if type(metric) ~= "table" then return false end
-    local pct = tonumber(metric.percent) or 0
+    local pct = tonumber(metric.percent)
+    if pct == nil then
+        pct = tonumber(tostring(metric.value or ""):match("(%d+)")) or 0
+    end
     if pct > 0 then
         return true
     end
+
     local at = M.parseIso(metric.reset_at)
+    local remaining = nil
     if at ~= nil and at > os.time() then
-        return true
+        remaining = at - os.time()
     end
-    local fromDetail = M.elapsedPercent(metric.detail)
-    if fromDetail ~= nil and fromDetail > 0 then
-        return true
+
+    if remaining == nil and type(metric.detail) == "string" then
+        local detail = metric.detail
+        local d, dh = detail:match("Resets in%s+(%d+)d%s*(%d*)h?")
+        if d then
+            remaining = tonumber(d) * 86400 + (tonumber(dh) or 0) * 3600
+        else
+            local h, m = detail:match("Resets in%s+(%d+)h%s*(%d*)m?")
+            if h then
+                remaining = tonumber(h) * 3600 + (tonumber(m) or 0) * 60
+            else
+                local mOnly = detail:match("Resets in%s+(%d+)m")
+                if mOnly then
+                    remaining = tonumber(mOnly) * 60
+                end
+            end
+        end
     end
-    local detail = tostring(metric.detail or "")
-    if detail:find("Resets in", 1, true) then
-        local left = M.countdown(metric)
-        if left == "" then left = detail:match("Resets in ([^·]+)") or "" end
-        left = noctalia.string.trim(left)
-        local trNow = (noctalia and type(noctalia.tr) == "function") and noctalia.tr("ui.now") or "now"
-        if left ~= "" and left ~= "now" and left ~= trNow then
+
+    -- If no future reset time is present (expired or never scheduled), session is not started
+    if remaining == nil or remaining <= 0 then
+        return false
+    end
+
+    local window = tonumber(metric.window_secs) or 18000
+    if window <= 0 then window = 18000 end
+
+    local elapsed = M.elapsedPercent(metric.detail)
+    if elapsed == nil then
+        local elapsedSecs = math.max(0, window - remaining)
+        elapsed = math.floor((elapsedSecs / window) * 100)
+    end
+
+    -- An active session has consumed quota (>0%), has elapsed significantly
+    -- (>= 10% elapsed, e.g. >30m into a 5h window), or has less than 90% remaining (<4h 30m of 5h).
+    local isCodex = type(metric.label) == "string" and metric.label:lower():find("codex") ~= nil
+    if isCodex then
+        -- Codex (OpenAI) does not use fixed slots; its window is strictly rolling from the prompt.
+        -- Any session that has elapsed (> 0% elapsed) or has less than 4h 58m remaining is actively running.
+        if (elapsed and elapsed > 0) or (remaining > 0 and remaining < 17880) then
+            return true
+        end
+    else
+        -- Anthropic / others with fixed slots (e.g. slot can be up to 15-20m in before use):
+        if (elapsed and elapsed >= 10) or (remaining > 0 and remaining < (window * 0.90)) then
             return true
         end
     end
+
     return false
 end
 
@@ -531,6 +575,116 @@ function M.severityRole(section, calm)
     if severity == "critical" then return "error" end
     if severity == "high" then return "secondary" end
     return calm
+end
+
+-- Modelo matemático de triaxe para optimización dinámica de recursos multi-fornecedor:
+-- Obxectivo: Maximizar o rendemento útil de tokens ao longo do tempo sen chegar ao esgotamento prematuro,
+-- garantindo que todos os servidores rematen en 0% (ou pouco antes) ao rematar o seu período semanal ou de sesión (5h).
+-- Arbitraxe de caducidade temporal: Se un modelo resetea a súa cota semanal en <= 48h, calquera cota libre
+-- non utilizada pérdese irremediabelmente; consumila antes do reseteo duplica a cota aproveitábel nesa ventá.
+function M.calculateModelTriageScore(item)
+    if item == nil or M.unavailable(item.entry) then
+        return -1000
+    end
+
+    local sMetric = item.sessionMetric
+    local wMetric = item.weeklyMetric
+
+    local sPct = sMetric and tonumber(sMetric.percent) or 0
+    local wPct = wMetric and tonumber(wMetric.percent) or 0
+    local sFree = math.max(0, 100 - sPct)
+    local wFree = math.max(0, 100 - wPct)
+
+    -- Condicións de parada dura (Hard constraints / lockouts)
+    -- Se a cota semanal está ao 100% esgotada, non se pode enviar tráfico
+    if wMetric ~= nil and wPct >= 100 then
+        return -500 - sPct
+    end
+    -- Se a cota de sesión está ao 100% esgotada, queda en espera de reseteo de 5h
+    if sMetric ~= nil and sPct >= 100 then
+        return -300 - wPct
+    end
+
+    ----------------------------------------------------------------------
+    -- 1. MODELO MATEMÁTICO SEMANAL (7d): Velocidade e Headroom
+    ----------------------------------------------------------------------
+    local wFactor = 1.0
+    local uResetWeekly = 0.0
+
+    if wMetric ~= nil then
+        local wAt = M.parseIso(wMetric.reset_at)
+        local wRemainingSecs = wAt and math.max(1, wAt - os.time()) or 604800
+        local H_w = math.max(0.5, wRemainingSecs / 3600) -- Horas restantes ata reseteo semanal
+
+        -- Ratio de velocidade semanal requirida Pi_w:
+        -- Taxa nominal sustentábel: 100% / 168h = 0.595%/h
+        -- Taxa requirida: wFree / H_w
+        -- Pi_w = (wFree / H_w) / (100 / 168) = (wFree / H_w) * 1.68
+        -- Se Pi_w > 1.0: consumo atrasado respecto ao tempo (hai superávit para queimar)
+        -- Se Pi_w < 1.0: consumo adiantado respecto ao tempo (débese conservar)
+        local Pi_w = (wFree / H_w) * 1.68
+
+        -- Factor de conservación estrito se queda pouca cota e moito tempo
+        if wFree <= 12.0 and H_w > 24.0 then
+            wFactor = 0.08 + 0.15 * (wFree / 12.0)
+        else
+            -- Función de peso continuo: escala suave entre 0.20 e 1.80
+            wFactor = math.min(1.80, math.max(0.20, 0.40 + 0.60 * Pi_w))
+        end
+
+        -- Bonus de Arbitraxe Temporal por Reseteo Semanal Inminente:
+        -- "tratar de que o consumo esa semana sexa o dobre de ese fornecedor/modelo"
+        -- Se o reseteo semanal ocorre en <= 48h, calquera cota non consumida destrúese.
+        -- Consumila antes do reseteo duplica a capacidade aproveitábel nesa ventá temporal.
+        if H_w <= 48.0 and wFree >= 5.0 then
+            local cycleUrgency = (48.0 - H_w) / 48.0
+            uResetWeekly = (wFree * 1.50) * (cycleUrgency * cycleUrgency)
+        end
+    end
+
+    ----------------------------------------------------------------------
+    -- 2. MODELO MATEMÁTICO DE SESIÓN (5h) E ACOPLAMENTO CO SEMANAL
+    ----------------------------------------------------------------------
+    local score = 0.0
+
+    if sMetric ~= nil then
+        local sAt = M.parseIso(sMetric.reset_at)
+        local sStarted = M.isSessionStarted(sMetric)
+        local sWindow = tonumber(sMetric.window_secs) or 18000
+        local sRemainingSecs = (sStarted and sAt and sAt > os.time())
+            and math.max(1, sAt - os.time())
+            or (sStarted and 1 or sWindow)
+        local H_s = math.max(0.05, sRemainingSecs / 3600) -- Horas restantes de sesión
+
+        if sStarted then
+            -- Sesión activa: o reloxo de 5h está correndo.
+            -- Criterio de caducidade temporal: queimar para chegar a 0% xusto ás 5h.
+            local sElapsedRatio = math.min(1.0, math.max(0.0, (sWindow - sRemainingSecs) / sWindow))
+            local sUrgencyFactor = 1.0 + 2.20 * (sElapsedRatio * sElapsedRatio)
+            local baseSession = sFree * sUrgencyFactor
+
+            -- Urxencia crítica de esgotamento de sesión se quedan <= 1.5h con cota libre significativa
+            local uBurnSession = 0.0
+            if H_s <= 1.50 and sFree >= 15.0 then
+                local burnUrgency = (1.50 - H_s) / 1.50
+                uBurnSession = 50.0 * (sFree / 100.0) * burnUrgency
+            end
+
+            -- Acoplamento: a velocidade da sesión modúlase polo factor semanal
+            score = (baseSession * wFactor) + uBurnSession + uResetWeekly
+        else
+            -- Sesión non iniciada (0% consumo, reloxo parado):
+            -- Dá valor se a cota semanal ten superávit, pero ten menor inmediatez
+            -- que unha sesión que xa está a consumir tempo de reloxo.
+            local baseSession = sFree * 0.75
+            score = (baseSession * wFactor) + uResetWeekly
+        end
+    else
+        -- Sen métrica de sesión: optimízase directamente sobre a cota semanal
+        score = (wFree * wFactor) + uResetWeekly
+    end
+
+    return score
 end
 
 return M
