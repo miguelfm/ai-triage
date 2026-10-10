@@ -6,7 +6,7 @@ local report = nil
 local polling = false
 local refreshQueued = false
 
--- Modo de visualización: "columns" (tres columnas lado a lado) ou "tabs" (pestanas orixinais)
+-- View mode: "columns" (three side-by-side columns) or "tabs" (original tabs)
 local LAYOUT_MODE = "columns"
 
 local shared = require("./shared.luau")
@@ -736,7 +736,7 @@ local function detailPane(entry)
     if #cards > 0 then
         local needsScroll = false
         if LAYOUT_MODE == "columns" then
-            -- En modo columnas con panel alto (640px), 2-4 tarxetas entran sen scroll.
+            -- In column mode with tall panel (640px), 2-4 cards fit without scrolling.
             needsScroll = #cards >= 5 or metricCount >= 8
             for _, item in ipairs(items) do
                 if item.section.type == "block" and type(item.section.body) == "table"
@@ -895,7 +895,7 @@ local function renderTabs(entry, candidates)
     }))
 end
 
--- ── Modo 3 columnas: Sesión (5h), Semanal (7d) e Reset credits ──────────────
+-- ── 3-Column Layout: Session (5h), Weekly (7d), and Reset Credits ────────────
 
 local function collectModelItems(candidates)
     local items = {}
@@ -1155,7 +1155,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
                 bg = "tertiary/0.22",
                 border = "tertiary/0.55",
                 cardBorder = "tertiary/0.55",
-                summary = "Cota semanal ao 100% · Momento óptimo para solicitar reseteo e duplicar cota!",
+                summary = "Weekly quota at 100% · Optimal moment to claim reset and double quota!",
             }
         end
         return {
@@ -1179,7 +1179,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
             bg = "primary/0.20",
             border = "primary/0.50",
             cardBorder = "primary/0.50",
-            summary = string.format("Adiantar reseteo: queimar %d%% restante en ~3.5d para duplicar cota e desincronizar", remainingQuota),
+            summary = string.format("Advance reset: burn remaining %d%% in ~3.5d to double quota and stagger expirations", remainingQuota),
         }
     end
 
@@ -1442,7 +1442,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 glyph = "external-link",
                 variant = "primary",
                 controlSize = "xs",
-                tooltip = "Abrir dashboard para solicitar o reseteo semanal",
+                tooltip = "Open dashboard to claim weekly reset",
                 onClick = function()
                     if type(noctalia.runAsync) == "function" then
                         noctalia.runAsync("xdg-open '" .. dashUrl .. "'")
@@ -1606,24 +1606,24 @@ local function renderCreditCard(credit)
     local roleBadge = nil
     if credit.role == "claim" then
         roleBadge = ui.row({
-            paddingH = 4, paddingV = 1, radius = 4,
+            paddingH = 5, paddingV = 1.5, radius = 4,
             fill = "tertiary/0.20", border = "tertiary/0.50", borderWidth = 1,
         }, {
-            ui.label({ text = "RECLAMAR XA", fontSize = 9, fontWeight = "bold", color = "#c084fc" }),
+            ui.label({ text = "CLAIM NOW", fontSize = 9, fontWeight = "bold", color = "#c084fc" }),
         })
     elseif credit.role == "advance" then
         roleBadge = ui.row({
-            paddingH = 4, paddingV = 1, radius = 4,
+            paddingH = 5, paddingV = 1.5, radius = 4,
             fill = "primary/0.20", border = "primary/0.50", borderWidth = 1,
         }, {
-            ui.label({ text = "ADIANTAR", fontSize = 9, fontWeight = "bold", color = "#38bdf8" }),
+            ui.label({ text = "ADVANCE", fontSize = 9, fontWeight = "bold", color = "#38bdf8" }),
         })
     elseif credit.role == "defer" then
         roleBadge = ui.row({
-            paddingH = 4, paddingV = 1, radius = 4,
+            paddingH = 5, paddingV = 1.5, radius = 4,
             fill = "outline/0.15", border = "outline/0.30", borderWidth = 1,
         }, {
-            ui.label({ text = "DIFERIR", fontSize = 9, fontWeight = "medium", color = "on_surface_variant" }),
+            ui.label({ text = "DEFER", fontSize = 9, fontWeight = "medium", color = "on_surface_variant" }),
         })
     end
 
@@ -1632,7 +1632,7 @@ local function renderCreditCard(credit)
         glyph = "external-link",
         variant = "ghost",
         controlSize = "xs",
-        tooltip = "Abrir dashboard para xestionar reseteo",
+        tooltip = "Open dashboard to manage reset",
         onClick = function()
             if type(noctalia.runAsync) == "function" then
                 noctalia.runAsync("xdg-open '" .. dashUrl .. "'")
@@ -1643,14 +1643,14 @@ local function renderCreditCard(credit)
     return ui.column(cardStyle(6), {
         ui.row({ gap = 6, align = "center", tooltip = credit.fullTitle }, {
             ui.row({
-                width = 26, height = 26, radius = 6,
+                width = 24, height = 24, radius = 6,
                 fill = "primary/0.14", align = "center", justify = "center",
             }, {
-                ui.glyph({ name = credit.glyph, size = 15, color = "primary" }),
+                ui.glyph({ name = credit.glyph, size = 14, color = "primary" }),
             }),
             ui.label({
                 text = credit.providerName,
-                fontSize = 15,
+                fontSize = 14,
                 fontWeight = "bold",
                 color = "on_surface",
                 maxLines = 1,
@@ -1658,18 +1658,18 @@ local function renderCreditCard(credit)
             roleBadge,
             ui.spacer({ flexGrow = 1 }),
             openBtn,
-            ui.row({
-                gap = 5, align = "center",
-                paddingH = 5, paddingV = 2,
-            }, {
-                ui.glyph({ name = "clock", size = 14, color = fgColor }),
-                ui.label({
-                    text = credit.expiry,
-                    fontSize = 14,
-                    fontWeight = "semibold",
-                    color = fgColor,
-                    maxLines = 1,
-                }),
+        }),
+        ui.row({
+            gap = 5, align = "center",
+            paddingH = 2,
+        }, {
+            ui.glyph({ name = "clock", size = 13, color = fgColor }),
+            ui.label({
+                text = credit.expiry,
+                fontSize = 13,
+                fontWeight = "medium",
+                color = fgColor,
+                maxLines = 1,
             }),
         }),
     })
@@ -1756,7 +1756,7 @@ local function renderColumns(candidates)
     local staggerPlan, providerStats = shared.analyzeResetCredits(candidates)
     local resetCredits = collectResetCredits(candidates, staggerPlan)
 
-    -- Ordenar os modelos por triaxe (tendo en conta consumo e tempo horario e semanal e escalonamento)
+    -- Sort models by triage score (considering session & weekly pacing and staggering)
     table.sort(modelItems, function(a, b)
         local aScore = calculateModelTriageScore(a, staggerPlan)
         local bScore = calculateModelTriageScore(b, staggerPlan)
@@ -1776,8 +1776,8 @@ local function renderColumns(candidates)
         return (a.name or "") < (b.name or "")
     end)
 
-    -- Ambas columnas seguen a mesma orde de triaxe:
-    -- ao lado da tarxeta horaria vai sempre a semanal do mesmo provedor/modelo
+    -- Both columns follow the same triage order:
+    -- the session card sits next to the weekly card for the same provider/model
     local sessionCards = {}
     local weeklyCards = {}
     for _, item in ipairs(modelItems) do
@@ -1801,25 +1801,25 @@ local function renderColumns(candidates)
             ui.row({ gap = 6, align = "center" }, {
                 ui.glyph({ name = "calendar-clock", size = 15, color = "primary" }),
                 ui.label({
-                    text = string.format("Plan de Reseteos (Colisión en %.0fd)", staggerPlan.daysUntilExpiry or 12),
+                    text = string.format("Reset Plan (Collision in %.0fd)", staggerPlan.daysUntilExpiry or 12),
                     fontSize = 13, fontWeight = "bold", color = "primary",
                 }),
             }),
             ui.label({
-                text = string.format("%s e %s caducan á vez (~22 Out). Desincronización:", staggerPlan.advanceName or "Claude", staggerPlan.deferName or "Codex"),
+                text = string.format("%s & %s expire together (~Oct 22). Staggering strategy:", staggerPlan.advanceName or "Claude", staggerPlan.deferName or "Codex"),
                 fontSize = 11, color = "on_surface_variant",
             }),
             ui.row({ gap = 6, align = "start" }, {
                 ui.glyph({ name = "arrow-right", size = 12, color = "#38bdf8" }),
                 ui.label({
-                    text = string.format("1. Adiantar %s: queimar cota ata 100%% en ~3.5d e solicitar reseteo.", staggerPlan.advanceName or "Claude"),
+                    text = string.format("1. Advance %s: burn remaining quota to 100%% in ~3.5d and claim reset.", staggerPlan.advanceName or "Claude"),
                     fontSize = 11, fontWeight = "semibold", color = "on_surface", flexGrow = 1,
                 }),
             }),
             ui.row({ gap = 6, align = "start" }, {
                 ui.glyph({ name = "arrow-right", size = 12, color = "outline" }),
                 ui.label({
-                    text = string.format("2. Diferir %s: reservar crédito para a semana final (22 Out).", staggerPlan.deferName or "Codex"),
+                    text = string.format("2. Defer %s: reserve reset credit for the following week.", staggerPlan.deferName or "Codex"),
                     fontSize = 11, color = "on_surface_variant", flexGrow = 1,
                 }),
             }),
@@ -1836,16 +1836,16 @@ local function renderColumns(candidates)
                 ui.row({ gap = 6, align = "center" }, {
                     ui.glyph({ name = "sparkles", size = 16, color = "#c084fc" }),
                     ui.label({
-                        text = "Momento Óptimo de Reseteo!",
+                        text = "Optimal Reset Window!",
                         fontSize = 13, fontWeight = "bold", color = "#c084fc",
                     }),
                 }),
                 ui.label({
-                    text = string.format("%s esgotou o 100%% semanal. Solicita o reseteo agora para duplicar a cota!", pName),
+                    text = string.format("%s reached 100%% weekly quota. Claim reset now to double quota!", pName),
                     fontSize = 11, color = "on_surface",
                 }),
                 dashUrl and ui.button({
-                    text = "Abrir Dashboard",
+                    text = "Open Dashboard",
                     glyph = "external-link",
                     variant = "primary",
                     controlSize = "xs",
@@ -1871,7 +1871,7 @@ local function renderColumns(candidates)
     local col1 = ui.column({
         key = "col-session",
         gap = 6,
-        flexGrow = 1.20,
+        flexGrow = 1.15,
         align = "stretch",
         paddingH = 4,
         paddingV = 2,
@@ -1892,7 +1892,7 @@ local function renderColumns(candidates)
     local col2 = ui.column({
         key = "col-weekly",
         gap = 6,
-        flexGrow = 1.20,
+        flexGrow = 1.15,
         align = "stretch",
         paddingH = 4,
         paddingV = 2,
@@ -1913,7 +1913,7 @@ local function renderColumns(candidates)
     local col3 = ui.column({
         key = "col-credits",
         gap = 6,
-        flexGrow = 0.75,
+        flexGrow = 0.90,
         align = "stretch",
         paddingH = 4,
         paddingV = 2,
@@ -1925,7 +1925,7 @@ local function renderColumns(candidates)
             }, {
                 ui.glyph({ name = "ticket", size = 18, color = "primary" }),
             }),
-            ui.label({ text = "Reset credits", fontSize = 18, fontWeight = "bold", color = "on_surface" }),
+            ui.label({ text = "Reset Credits", fontSize = 18, fontWeight = "bold", color = "on_surface" }),
         }),
         ui.separator({ orientation = "horizontal", color = "outline", opacity = 0.16 }),
         ui.column({ gap = 6, align = "stretch" }, creditCards),

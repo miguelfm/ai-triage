@@ -577,16 +577,16 @@ function M.severityRole(section, calm)
     return calm
 end
 
--- ── Análise de ofertas de reseteo semanal e plan de desincronización (Staggering) ──
--- Cando dous ou máis provedores teñen créditos/ofertas de reseteo semanal con datas
--- de caducidade coincidentes (ou moi próximas, e.g. <7 días dentro do mesmo horizonte),
--- é operativamente inviábel duplicar o consumo de ambos na mesma semana final.
--- A estratexia óptima é o escalonamento (staggering):
--- 1. Un dos provedores adiántase para queimar a súa cota semanal á metade do tempo (~3.5d)
---    e solicitar o reseteo nese intre intermedio, completando dúas cotas esa semana.
--- 2. O outro resérvase para facer o mesmo na semana final de caducidade.
--- 3. Cando un provedor con créditos chega ao 100% de uso semanal (ou >=95%),
---    declárase o "Momento óptimo de solicitar reseteo".
+-- ── Reset credit analysis and staggering plan ─────────────────────────────────
+-- When two or more providers have weekly reset credits/promotions expiring
+-- around the same date (e.g. within 7 days in the same ~16d horizon),
+-- it is practically impossible to double quota consumption for both in the same final week.
+-- The optimal strategy is staggering:
+-- 1. One provider is advanced to burn its weekly quota in half the time (~3.5d)
+--    and claim the reset mid-cycle, completing two full quotas that week.
+-- 2. The other provider is deferred to the final expiration week.
+-- 3. When a provider with reset credits reaches 100% weekly usage (or >=95%),
+--    an "Optimal Reset Window" is flagged to claim immediately.
 function M.analyzeResetCredits(entries, nowTime)
     nowTime = nowTime or os.time()
     local providerStats = {}
@@ -682,8 +682,8 @@ function M.analyzeResetCredits(entries, nowTime)
         end
     end
 
-    -- Detección de colisión: 2 ou máis provedores con créditos que caducan en <= 16 días
-    -- e con datas de caducidade separadas por menos de 7 días (mesma ventá semanal)
+    -- Collision detection: 2 or more providers with credits expiring in <= 16 days
+    -- and with expiration dates separated by less than 7 days (same weekly window)
     if #allExpiring >= 2 then
         table.sort(allExpiring, function(a, b) return a.earliestExpiry < b.earliestExpiry end)
         for i = 1, #allExpiring - 1 do
@@ -698,10 +698,10 @@ function M.analyzeResetCredits(entries, nowTime)
                 staggerPlan.timeDiffHours = diffSecs / 3600
                 staggerPlan.daysUntilExpiry = math.min(p1.earliestRemainingSecs, p2.earliestRemainingSecs) / 86400
 
-                -- Avaliación de fitness para adiantar (Advance Fitness):
-                -- Maior consumo semanal actual wPct = moito máis preto de acadar o 100% nun tempo curto (~3.5d).
-                -- Crédito único vs múltiples: se p1 só ten 1 crédito e p2 ten múltiples consecutivos (como Codex con 3),
-                -- p1 require asegurar o seu ciclo, mentres que p2 ten ciclos posteriores adicionais.
+                -- Advance fitness evaluation:
+                -- Higher current weekly consumption (wPct) = closer to reaching 100% in a compressed timeframe (~3.5d).
+                -- Single vs multiple credits: if p1 only has 1 credit while p2 has multiple consecutive credits (e.g. Codex with 3),
+                -- p1 needs to secure its single cycle, whereas p2 has subsequent cycles.
                 local p1Score = p1.weeklyPercent + (p1.available == 1 and 25 or 0)
                 local p2Score = p2.weeklyPercent + (p2.available == 1 and 25 or 0)
 
@@ -720,13 +720,13 @@ function M.analyzeResetCredits(entries, nowTime)
     return staggerPlan, providerStats
 end
 
--- Modelo matemático de triaxe para optimización dinámica de recursos multi-fornecedor:
--- Obxectivo: Maximizar o rendemento útil de tokens ao longo do tempo sen chegar ao esgotamento prematuro,
--- garantindo que todos os servidores rematen en 0% (ou pouco antes) ao rematar o seu período semanal ou de sesión (5h).
--- Arbitraxe de caducidade temporal: Se un modelo resetea a súa cota semanal en <= 48h, calquera cota libre
--- non utilizada pérdese irremediabelmente; consumila antes do reseteo duplica a cota aproveitábel nesa ventá.
--- Escalonamento de ofertas coincidentes: Se o modelo é candidato para adiantar o reseteo, a taxa semanal
--- acelérase para acadar o 100% na metade do tempo (~3.5d) e activar o reseteo intermedio.
+-- Mathematical triage model for dynamic multi-provider resource optimization:
+-- Goal: Maximize useful token throughput over time without premature exhaustion,
+-- ensuring all provider quotas finish near 0% by the end of their weekly (7d) or session (5h) window.
+-- Time-arbitrage: When a weekly quota resets in <= 48h, any unused quota is permanently lost;
+-- burning it before reset effectively doubles usable quota in that window.
+-- Collision staggering: When designated as the advance leader, the weekly target pace is
+-- compressed to reach 100% in half the cycle (~3.5d) to trigger the mid-cycle reset.
 function M.calculateModelTriageScore(item, staggerPlan, nowTime)
     if item == nil or M.unavailable(item.entry) then
         return -1000
@@ -741,18 +741,18 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime)
     local sFree = math.max(0, 100 - sPct)
     local wFree = math.max(0, 100 - wPct)
 
-    -- Condicións de parada dura (Hard constraints / lockouts)
-    -- Se a cota semanal está ao 100% esgotada, non se pode enviar tráfico
+    -- Hard constraints / lockouts
+    -- If weekly quota is 100% exhausted, no traffic can be routed
     if wMetric ~= nil and wPct >= 100 then
         return -500 - sPct
     end
-    -- Se a cota de sesión está ao 100% esgotada, queda en espera de reseteo de 5h
+    -- If session quota is 100% exhausted, provider waits for the 5h reset
     if sMetric ~= nil and sPct >= 100 then
         return -300 - wPct
     end
 
     ----------------------------------------------------------------------
-    -- 1. MODELO MATEMÁTICO SEMANAL (7d): Velocidade e Headroom
+    -- 1. WEEKLY MATHEMATICAL MODEL (7d): Velocity and Headroom
     ----------------------------------------------------------------------
     local wFactor = 1.0
     local uResetWeekly = 0.0
@@ -761,11 +761,11 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime)
     if wMetric ~= nil then
         local wAt = M.parseIso(wMetric.reset_at)
         local wRemainingSecs = wAt and math.max(1, wAt - nowTime) or 604800
-        local H_w = math.max(0.5, wRemainingSecs / 3600) -- Horas restantes ata reseteo semanal
+        local H_w = math.max(0.5, wRemainingSecs / 3600) -- Hours remaining until weekly reset
 
-        -- Se este modelo pertence ao provedor designado para ADIANTAR reseteo (stagger leader):
-        -- O obxectivo é queimar o 100% da cota semanal na metade do tempo (~3.5d / 84h)
-        -- para solicitar o reseteo a metade de ciclo e duplicar o consumo semanal.
+        -- If this model belongs to the provider designated to ADVANCE reset (stagger leader):
+        -- The objective is to burn 100% of the weekly quota in half the time (~3.5d / 84h)
+        -- to claim the reset mid-cycle and double weekly throughput.
         local isStaggerLeader = false
         if staggerPlan and staggerPlan.hasCollision and staggerPlan.advanceProviderId then
             local baseId = M.baseProvider(item.providerId or (item.entry and item.entry.id))
@@ -776,28 +776,28 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime)
 
         local targetH_w = H_w
         if isStaggerLeader then
-            -- Horizonte acelerado á metade do tempo (mínimo 12h)
+            -- Compressed horizon at half the cycle (minimum 12h)
             targetH_w = math.min(H_w, math.max(12.0, H_w * 0.50))
         end
 
-        -- Ratio de velocidade semanal requirida Pi_w:
+        -- Required weekly consumption velocity ratio Pi_w:
         local Pi_w = (wFree / targetH_w) * 1.68
 
-        -- Factor de conservación estrito se queda pouca cota e moito tempo
+        -- Strict conservation factor if low headroom remains with ample time
         if wFree <= 12.0 and H_w > 24.0 and not isStaggerLeader then
             wFactor = 0.08 + 0.15 * (wFree / 12.0)
         else
-            -- Función de peso continuo: escala suave
+            -- Continuous weighting function: smooth scaling
             local maxWeight = isStaggerLeader and 2.20 or 1.80
             wFactor = math.min(maxWeight, math.max(0.20, 0.40 + 0.60 * Pi_w))
         end
 
-        -- Bonus de aceleración por escalonamento (stagger leader):
+        -- Stagger leader acceleration bonus:
         if isStaggerLeader and wFree >= 5.0 then
             uStaggerAdvance = 25.0 * (wFree / 100.0) * math.min(1.0, (168.0 - targetH_w) / 168.0)
         end
 
-        -- Bonus de Arbitraxe Temporal por Reseteo Semanal Inminente (<= 48h):
+        -- Time-arbitrage bonus for imminent weekly reset (<= 48h):
         if H_w <= 48.0 and wFree >= 5.0 then
             local cycleUrgency = (48.0 - H_w) / 48.0
             uResetWeekly = (wFree * 1.50) * (cycleUrgency * cycleUrgency)
@@ -805,7 +805,7 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime)
     end
 
     ----------------------------------------------------------------------
-    -- 2. MODELO MATEMÁTICO DE SESIÓN (5h) E ACOPLAMENTO CO SEMANAL
+    -- 2. SESSION MATHEMATICAL MODEL (5h) AND WEEKLY COUPLING
     ----------------------------------------------------------------------
     local score = 0.0
 
@@ -816,30 +816,30 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime)
         local sRemainingSecs = (sStarted and sAt and sAt > nowTime)
             and math.max(1, sAt - nowTime)
             or (sStarted and 1 or sWindow)
-        local H_s = math.max(0.05, sRemainingSecs / 3600) -- Horas restantes de sesión
+        local H_s = math.max(0.05, sRemainingSecs / 3600) -- Hours remaining in session
 
         if sStarted then
-            -- Sesión activa: o reloxo de 5h está correndo.
+            -- Active session: 5h timer is running
             local sElapsedRatio = math.min(1.0, math.max(0.0, (sWindow - sRemainingSecs) / sWindow))
             local sUrgencyFactor = 1.0 + 2.20 * (sElapsedRatio * sElapsedRatio)
             local baseSession = sFree * sUrgencyFactor
 
-            -- Urxencia crítica de esgotamento de sesión se quedan <= 1.5h con cota libre significativa
+            -- Critical session burn urgency if <= 1.5h remains with significant headroom
             local uBurnSession = 0.0
             if H_s <= 1.50 and sFree >= 15.0 then
                 local burnUrgency = (1.50 - H_s) / 1.50
                 uBurnSession = 50.0 * (sFree / 100.0) * burnUrgency
             end
 
-            -- Acoplamento: a velocidade da sesión modúlase polo factor semanal e os bonus
+            -- Coupling: session velocity modulated by weekly pace factor and bonuses
             score = (baseSession * wFactor) + uBurnSession + uResetWeekly + uStaggerAdvance
         else
-            -- Sesión non iniciada (0% consumo, reloxo parado):
+            -- Uninitiated session (0% usage, timer not yet started):
             local baseSession = sFree * 0.75
             score = (baseSession * wFactor) + uResetWeekly + uStaggerAdvance
         end
     else
-        -- Sen métrica de sesión: optimízase directamente sobre a cota semanal
+        -- No session metric: optimize directly on weekly quota
         score = (wFree * wFactor) + uResetWeekly + uStaggerAdvance
     end
 
