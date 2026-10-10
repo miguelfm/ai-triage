@@ -18,6 +18,7 @@ local isSessionStarted = shared.isSessionStarted
 local calculateModelTriageScore = shared.calculateModelTriageScore
 local calculateActiveHours = shared.calculateActiveHours
 local getScheduleConfig = shared.getScheduleConfig
+local getModelGearing = shared.getModelGearing
 local modelGlyph = shared.modelGlyph
 local modelDisplayName = shared.modelDisplayName
 local elapsedPercent, pace = shared.elapsedPercent, shared.pace
@@ -1190,11 +1191,19 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
         }
     end
 
+    local gearing = getModelGearing(item and (item.providerId or (item.entry and item.entry.id)), item and item.name) or 10.0
+    local oneSessionPct = 100.0 / gearing
+    local sessionsNeeded = remainingQuota / oneSessionPct
+
     local shouldThrottle = false
+    local throttleSummary = nil
     if percent >= 75 and remainingSecs > (isWeekly and 172800 or 3600) then
         shouldThrottle = true
     elseif paceDiff <= -15 and percent >= 60 then
         shouldThrottle = true
+    elseif isWeekly and gearing <= 3.5 and percent >= 45 and remainingSecs > 172800 then
+        shouldThrottle = true
+        throttleSummary = string.format("Conserve · High weekly impact (~%.1f sess/wk, 1 session = ~%d%% week)", gearing, math.floor(oneSessionPct + 0.5))
     end
 
     if shouldThrottle then
@@ -1206,7 +1215,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
             bg = "error/0.18",
             border = "error/0.45",
             cardBorder = "error/0.45",
-            summary = string.format("Heavy use · %d%% free remaining", remainingQuota),
+            summary = throttleSummary or string.format("Heavy use · %d%% free remaining", remainingQuota),
         }
     end
 
@@ -1224,9 +1233,15 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
         end
     else
         local H_w_active = calculateActiveHours(os.time(), at)
+        local C_max = (H_w_active * 20.0) / gearing
+        local dutyCycle = remainingQuota / math.max(1.0, C_max)
+
         if (H_w_active <= 14.0 or remainingSecs <= 86400) and remainingQuota >= 10 and remainingSecs > 0 then
             shouldBurn = true
             burnSummary = string.format("Weekly reset soon (~%.1fh active left) · %d%% quota will expire", H_w_active, remainingQuota)
+        elseif dutyCycle >= 0.85 and remainingQuota >= 20 and remainingSecs > 0 then
+            shouldBurn = true
+            burnSummary = string.format("Session bottleneck: need ~%.1f sessions for %d%% weekly quota (~%.1fs/w)", sessionsNeeded, remainingQuota, gearing)
         elseif remainingSecs <= 172800 and remainingQuota >= 25 and remainingSecs > 0 then
             shouldBurn = true
         elseif remainingSecs <= 259200 and remainingQuota >= 35 and remainingSecs > 0 then
@@ -1540,6 +1555,29 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 maxLines = 1,
             }),
         })
+    end
+
+    if isWeekly then
+        local gearing = getModelGearing(item and (item.providerId or (item.entry and item.entry.id)), item and item.name)
+        if gearing then
+            local oneSessionPct = math.floor((100.0 / gearing) + 0.5)
+            bottomRowElements[#bottomRowElements + 1] = ui.row({
+                gap = 4, align = "center", justify = "center",
+                paddingH = 7,
+                paddingV = 2,
+                radius = 5,
+                fill = "secondary/0.10",
+                tooltip = string.format("Gearing: ~%.1f 5h sessions per week (1 session burns ~%d%% weekly quota)", gearing, oneSessionPct),
+            }, {
+                ui.glyph({ name = "gauge", size = 12, color = "secondary" }),
+                ui.label({
+                    text = string.format("~%.1fs/w", gearing),
+                    fontSize = 12,
+                    fontWeight = "medium",
+                    color = "secondary",
+                }),
+            })
+        end
     end
 
     local ksTarget = kickstartTarget(item)

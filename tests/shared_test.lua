@@ -444,4 +444,36 @@ local codexScore = shared.calculateModelTriageScore(codexSunday, nil, os.time(),
 assert(geminiScore > codexScore,
     string.format("Gemini with imminent reset in ~9.9h active hours (%f) must outrank Codex with 4-day buffer (%f)", geminiScore, codexScore))
 
+-- 8. Model Quota Gearing Ratios (K_m = L_weekly / L_session)
+assert(shared.getModelGearing("claude-oss", "Claude & GPT OSS") == 2.5, "claude-oss gearing must be 2.5")
+assert(shared.getModelGearing("gemini", "Gemini") == 8.0, "gemini gearing must be 8.0")
+assert(shared.getModelGearing("anthropic", "Claude") == 14.0, "anthropic gearing must be 14.0")
+assert(shared.getModelGearing("openai", "Codex") == 16.0, "codex gearing must be 16.0")
+assert(shared.getModelGearing("custom_provider", "Custom Model") == 10.0, "default gearing must be 10.0")
+
+-- Midweek comparison:
+-- Codex (K=16.0, 1 session burns only 6.25% of the week; needs 9.6 sessions to finish remaining 60% weekly quota)
+-- Claude & GPT OSS (K=2.5, 1 session burns 40% of the week; needs only 1.5 sessions to finish remaining 60% weekly quota)
+-- With 80h calendar buffer (~48h active hours = ~9.6 available 5h slots):
+-- Codex is at 100% session capacity stress (needs nearly all remaining slots), whereas Claude OSS burns 40% of the entire
+-- week in just one 5h session and must be strictly conserved so as not to exhaust the user's weekly budget mid-week.
+local codexMidweek = {
+    providerId = "openai",
+    name = "Codex",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 0, window_secs = 18000, reset_at = nil },
+    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(80 * 3600) },
+}
+local claudeOssMidweek = {
+    providerId = "claude-oss",
+    name = "Claude & GPT OSS",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 0, window_secs = 18000, reset_at = nil },
+    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(80 * 3600) },
+}
+local codexMidweekScore = shared.calculateModelTriageScore(codexMidweek, nil, os.time(), cfg, true)
+local claudeOssMidweekScore = shared.calculateModelTriageScore(claudeOssMidweek, nil, os.time(), cfg, true)
+assert(codexMidweekScore > claudeOssMidweekScore * 2,
+    string.format("Codex with high session gearing (%f) must heavily outrank Claude OSS with low gearing (%f) mid-week", codexMidweekScore, claudeOssMidweekScore))
+
 io.write("ok: shared timestamps, availability, provider order, mathematical triage score, and reset staggering\n")

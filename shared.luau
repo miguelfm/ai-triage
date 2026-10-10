@@ -842,11 +842,59 @@ function M.calculateActiveHours(tStart, tEnd, config, isUserActiveNow)
     return math.max(0.25, totalActiveHours)
 end
 
+-- Model Quota Gearing Ratios (K_m = L_weekly / L_session):
+-- Defines how many full 100% 5h sessions equal 100% weekly quota.
+-- Low K (<= 3.5, e.g. Claude & GPT OSS ~2.5): weekly quota is the bottleneck; 1 session burns ~40% of the week.
+-- High K (>= 12.0, e.g. Codex ~16.0, Claude Pro ~14.0): 5h session windows are the bottleneck; 1 session burns only 6-7%.
+M.DEFAULT_GEARING = {
+    ["claude-oss"] = 2.5,
+    ["gemini"] = 8.0,
+    ["anthropic"] = 14.0,
+    ["openai"] = 16.0,
+    ["default"] = 10.0,
+}
+
+function M.getModelGearing(providerId, modelName)
+    local rawId = tostring(providerId or ""):lower()
+    local rawName = tostring(modelName or ""):lower()
+
+    if type(noctalia) == "table" and type(noctalia.getConfig) == "function" then
+        if rawId:find("oss") or rawName:find("oss") then
+            local v = tonumber(noctalia.getConfig("gearing_claude_oss"))
+            if v and v > 0 then return v end
+        elseif rawId:find("gemini") or rawName:find("gemini") then
+            local v = tonumber(noctalia.getConfig("gearing_gemini"))
+            if v and v > 0 then return v end
+        elseif rawId:find("anthropic") or (rawName:find("claude") and not rawName:find("oss")) then
+            local v = tonumber(noctalia.getConfig("gearing_anthropic"))
+            if v and v > 0 then return v end
+        elseif rawId:find("openai") or rawName:find("codex") or rawName:find("gpt") then
+            local v = tonumber(noctalia.getConfig("gearing_openai"))
+            if v and v > 0 then return v end
+        end
+        local def = tonumber(noctalia.getConfig("gearing_default"))
+        if def and def > 0 then return def end
+    end
+
+    if rawId:find("oss") or rawName:find("oss") then
+        return 2.5
+    elseif rawId:find("gemini") or rawName:find("gemini") then
+        return 8.0
+    elseif rawId:find("anthropic") or (rawName:find("claude") and not rawName:find("oss")) then
+        return 14.0
+    elseif rawId:find("openai") or rawName:find("codex") or rawName:find("gpt") then
+        return 16.0
+    end
+    return 10.0
+end
+
 -- Mathematical triage model for dynamic multi-provider resource optimization:
 -- Goal: Maximize useful token throughput over time without premature exhaustion,
 -- ensuring all provider quotas finish near 0% by the end of their weekly (7d) or session (5h) window.
 -- Schedule-aware active pacing: Pacing and velocity are calculated over effective active working hours
 -- (discounting sleep and off-hours), elevating providers whose remaining active time is critically scarce.
+-- Model gearing (K_m): Couples weekly quotas with 5h session windows, factoring in how many sessions
+-- fit in a weekly quota (e.g. ~2.5 for Claude & GPT OSS vs ~16 for Codex).
 -- Time-arbitrage & perishability: When weekly reset is within active reach (<= 24 active hours),
 -- unspent quota risks permanent loss and receives an urgency multiplier.
 -- Collision staggering: When designated as the advance leader, the weekly target pace is
@@ -880,15 +928,21 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
     end
 
     ----------------------------------------------------------------------
-    -- 1. WEEKLY MATHEMATICAL MODEL (7d): Velocity and Headroom
+    -- 1. WEEKLY MATHEMATICAL MODEL (7d): Velocity, Capacity & Gearing
     ----------------------------------------------------------------------
+    local gearing = M.getModelGearing(item.providerId or (item.entry and item.entry.id), item.name)
+
     local wFactor = 1.0
     local uResetWeekly = 0.0
     local uStaggerAdvance = 0.0
+    local uBottleneck = 0.0
+    local uLowKConserve = 0.0
+    local dutyCycle = 0.0
+    local H_w = 0.0
 
     if wMetric ~= nil then
         local wAt = M.parseIso(wMetric.reset_at)
-        local H_w = M.calculateActiveHours(nowTime, wAt, scheduleConfig, isUserActiveNow)
+        H_w = M.calculateActiveHours(nowTime, wAt, scheduleConfig, isUserActiveNow)
         if H_w < 0.5 then H_w = 0.5 end
 
         -- If this model belongs to the provider designated to ADVANCE reset (stagger leader):
@@ -908,16 +962,25 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             targetH_w = math.min(H_w, math.max(6.0, H_w * 0.50))
         end
 
-        -- Required weekly consumption velocity ratio Pi_w:
-        local Pi_w = (wFree / targetH_w) * 1.68
+        -- Capacity and session duty cycle:
+        -- In targetH_w active hours, max sessions = targetH_w / 5.0, each session burns (100 / gearing)%
+        local C_max = (targetH_w * 20.0) / gearing
+        dutyCycle = wFree / math.max(1.0, C_max)
 
-        -- Strict conservation factor if low headroom remains with ample time
-        if wFree <= 12.0 and H_w > 24.0 and not isStaggerLeader then
-            wFactor = 0.08 + 0.15 * (wFree / 12.0)
+        -- Required weekly consumption velocity ratio Pi_w, geared by model capacity ratio:
+        local Pi_w = (wFree / targetH_w) * 1.68
+        local gearedPi_w = Pi_w * ((gearing / 10.0) ^ 0.60)
+
+        -- Threshold for low headroom scales with gearing (1 session is 100/gearing %):
+        local oneSessionPct = 100.0 / gearing
+        local lowHeadroomPct = math.min(30.0, math.max(8.0, oneSessionPct * 0.80))
+
+        if wFree <= lowHeadroomPct and H_w > 24.0 and not isStaggerLeader then
+            wFactor = 0.08 + 0.15 * (wFree / lowHeadroomPct)
         else
             -- Continuous weighting function: smooth scaling
             local maxWeight = isStaggerLeader and 2.20 or 1.80
-            wFactor = math.min(maxWeight, math.max(0.20, 0.40 + 0.60 * Pi_w))
+            wFactor = math.min(maxWeight, math.max(0.20, 0.40 + 0.60 * gearedPi_w))
         end
 
         -- Stagger leader acceleration bonus:
@@ -929,8 +992,22 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         -- Reflects that quotas expire permanently if not consumed.
         -- When active hours <= 24h, remaining 5h sessions are scarce (e.g. <= 2 sessions left).
         if H_w <= 24.0 and wFree >= 5.0 then
-            local ratio = math.min(3.0, (14.0 / math.max(1.0, H_w))^1.2)
-            uResetWeekly = wFree * ratio * 3.5
+            local ratio = math.min(4.0, (16.0 / math.max(1.0, H_w))^1.2)
+            uResetWeekly = wFree * ratio * 4.2
+        end
+
+        -- Bottleneck urgency bonus for high-gearing models (K >= 8):
+        -- When dutyCycle >= 0.70 and weekly reset is not yet in the final 24h:
+        if dutyCycle >= 0.70 and wFree >= 5.0 and H_w > 24.0 then
+            local excess = math.min(2.0, dutyCycle - 0.50)
+            uBottleneck = 25.0 * (wFree / 100.0) * excess
+        end
+
+        -- Low-K conservation penalty: when K <= 3.5 (e.g. Claude & GPT OSS) with ample time (H_w >= 18h):
+        if gearing <= 3.5 and H_w >= 18.0 and dutyCycle <= 0.65 then
+            local scarcity = (3.5 - gearing) / 3.5
+            local timeHorizon = math.min(1.0, (H_w - 18.0) / 36.0)
+            uLowKConserve = -20.0 * scarcity * (1.0 - dutyCycle) * timeHorizon
         end
     end
 
@@ -963,17 +1040,21 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             end
 
             -- Coupling: session velocity modulated by weekly pace factor and bonuses
-            score = (baseSession * wFactor) + uBurnSession + uResetWeekly + uStaggerAdvance
+            score = (baseSession * wFactor) + uBurnSession + uResetWeekly + uStaggerAdvance + uBottleneck + uLowKConserve
         else
             -- Uninitiated session (0% usage, timer not yet started):
             -- Discounted if available active time before sleep/off-hours is short
             local availabilityDiscount = math.min(1.0, math.max(0.35, H_s / 5.0))
             local baseSession = sFree * 0.75 * availabilityDiscount
-            score = (baseSession * wFactor) + uResetWeekly + uStaggerAdvance
+            local uKickstart = 0.0
+            if dutyCycle >= 0.75 and H_w > 24.0 then
+                uKickstart = 12.0 * math.min(1.5, dutyCycle - 0.50)
+            end
+            score = (baseSession * wFactor) + uKickstart + uResetWeekly + uStaggerAdvance + uBottleneck + uLowKConserve
         end
     else
         -- No session metric: optimize directly on weekly quota
-        score = (wFree * wFactor) + uResetWeekly + uStaggerAdvance
+        score = (wFree * wFactor) + uResetWeekly + uStaggerAdvance + uBottleneck + uLowKConserve
     end
 
     return score

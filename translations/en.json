@@ -58,6 +58,26 @@
       "description": "Estimated inactive hours during daytime for lunch, dinner, or rest breaks.",
       "label": "Daily meal & break pause (hours)"
     },
+    "gearing_claude_oss": {
+      "description": "Number of full 5h sessions that equal 100% weekly quota for Claude & GPT OSS (default 2.5, where 1 session burns ~40% of the week).",
+      "label": "Gearing ratio: Claude & GPT OSS (sessions/wk)"
+    },
+    "gearing_gemini": {
+      "description": "Number of full 5h sessions that equal 100% weekly quota for Gemini (default 8.0, where 1 session burns ~12.5% of the week).",
+      "label": "Gearing ratio: Gemini (sessions/wk)"
+    },
+    "gearing_anthropic": {
+      "description": "Number of full 5h sessions that equal 100% weekly quota for Claude Pro (default 14.0, where 1 session burns ~7.1% of the week).",
+      "label": "Gearing ratio: Claude Pro (sessions/wk)"
+    },
+    "gearing_openai": {
+      "description": "Number of full 5h sessions that equal 100% weekly quota for OpenAI / Codex (default 16.0, where 1 session burns ~6.25% of the week).",
+      "label": "Gearing ratio: Codex / OpenAI (sessions/wk)"
+    },
+    "gearing_default": {
+      "description": "Default number of full 5h sessions that equal 100% weekly quota for unlisted models (default 10.0).",
+      "label": "Gearing ratio: Default (sessions/wk)"
+    },
     "show_glyph": {
       "description": "The provider's icon. Off leaves the reading on its own.",
       "label": "Show icon"

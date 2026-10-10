@@ -77,6 +77,41 @@ default = 1
 min = 0
 max = 3
 
+[[setting]]
+key = "gearing_claude_oss"
+type = "string"
+label_key = "settings.gearing_claude_oss.label"
+description_key = "settings.gearing_claude_oss.description"
+default = "2.5"
+
+[[setting]]
+key = "gearing_gemini"
+type = "string"
+label_key = "settings.gearing_gemini.label"
+description_key = "settings.gearing_gemini.description"
+default = "8.0"
+
+[[setting]]
+key = "gearing_anthropic"
+type = "string"
+label_key = "settings.gearing_anthropic.label"
+description_key = "settings.gearing_anthropic.description"
+default = "14.0"
+
+[[setting]]
+key = "gearing_openai"
+type = "string"
+label_key = "settings.gearing_openai.label"
+description_key = "settings.gearing_openai.description"
+default = "16.0"
+
+[[setting]]
+key = "gearing_default"
+type = "string"
+label_key = "settings.gearing_default.label"
+description_key = "settings.gearing_default.description"
+default = "10.0"
+
 # ── Entries ───────────────────────────────────────────────────────────────────
 
 # One poller for the whole shell: a single `usage --json` call returns every

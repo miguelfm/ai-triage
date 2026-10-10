@@ -33,6 +33,8 @@ Install the respective CLI for any backend provider you wish to prime.
 
 ## Features
 
+- **Schedule-Aware Human Activity Model**: Optimizes quota pacing against real working hours ($H_{\text{active}}$) rather than calendar time. Automatically discounts sleep hours, weekend rest patterns, and meal pauses. Dynamically adapts when coding late-night or out-of-schedule with an active awake burst window ($T_{\text{burst}} = 2.0\text{h}$). Quotas expiring in off-hours or before morning wake-up receive critical urgency bonuses to prevent perishable token loss.
+- **Model Quota Gearing Ratios ($K_m$)**: Couples weekly quotas with 5h session limits based on how many full sessions fit in a weekly quota ($K_m = L_{\text{weekly}} / L_{\text{session}}$). Differentiates low-gearing models (e.g. Claude & GPT OSS, $K \approx 2.5$, where 1 session burns ~40% of the week) which require strict weekly conservation early in the cycle, from high-gearing models (e.g. Codex, $K \approx 16.0$, where 1 session burns only ~6.25%) that are bottlenecked by 5h windows and require aggressive continuous session throughput to avoid expiring with unspent tokens.
 - **Multi-Provider & Antigravity Model Separation**: Full independent tracking for all supported providers, including dedicated cards and individual triage scoring for Antigravity's **Gemini** (Gemini 2.5 Pro / Flash) and **Claude & GPT OSS** (Claude 3.7 Sonnet, GPT-OSS) tiers.
 - **Mathematical Triage & Prioritization Engine**: Dynamically ranks providers using a continuous optimization model that balances 5-hour rolling session exhaustion against 7-day weekly pace. Prioritizes under-utilized quotas, boosts providers with upcoming weekly resets ($\le 48\text{h}$) to avoid wasting expiring allocations, and enforces hard lockouts for exhausted quotas.
 - **Interactive Session Priming (`ai-kickstart`)**: Providers with rolling windows (Claude, Codex, Antigravity) start their countdown when the first prompt is sent. The panel displays a `[⚡ Start 5h]` button to prime sessions at the start of your workday with a single click. Priming is automatically suppressed for providers whose weekly quotas are already depleted.
@@ -71,6 +73,17 @@ Plugin-level settings (shared across poller, capsules, and panel):
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `refresh_minutes` | `int` | `5` | Minutes between CLI calls (1 to 120). Countdowns tick locally in between. |
+| `schedule_aware_triage` | `bool` | `true` | Pace quota consumption against active working hours (discounting sleep and meals). |
+| `sleep_start_hour` | `int` | `0` | Weekday sleep/off-hours start hour (0 = midnight). |
+| `sleep_end_hour` | `int` | `8` | Weekday wake-up / active hours start hour (8 = 8 AM). |
+| `weekend_sleep_start_hour` | `int` | `1` | Weekend sleep/off-hours start hour (1 = 1 AM). |
+| `weekend_sleep_end_hour` | `int` | `9` | Weekend wake-up / active hours start hour (9 = 9 AM). |
+| `meal_pause_hours` | `int` | `1` | Estimated daily pause hours for lunch/breaks. |
+| `gearing_claude_oss` | `string` | `"2.5"` | Sessions per week for Claude & GPT OSS (1 session burns ~40% weekly quota). |
+| `gearing_gemini` | `string` | `"8.0"` | Sessions per week for Gemini (1 session burns ~12.5% weekly quota). |
+| `gearing_anthropic` | `string` | `"14.0"` | Sessions per week for Claude Pro (1 session burns ~7.1% weekly quota). |
+| `gearing_openai` | `string` | `"16.0"` | Sessions per week for Codex / OpenAI (1 session burns ~6.25% weekly quota). |
+| `gearing_default` | `string` | `"10.0"` | Default sessions per week for unlisted models. |
 
 Per-widget settings (configurable for each bar capsule):
 

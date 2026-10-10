@@ -54,6 +54,26 @@
       "description": "Horas estimadas de pausa durante o dia para almoço, jantar ou descanso.",
       "label": "Pausa diária para refeições (horas)"
     },
+    "gearing_claude_oss": {
+      "description": "Número de sessões cheias de 5h equivalentes a 100% da cota semanal para Claude & GPT OSS (padrão 2.5, onde 1 sessão consome ~40% da semana).",
+      "label": "Razão de escalonamento: Claude & GPT OSS (sessões/sem)"
+    },
+    "gearing_gemini": {
+      "description": "Número de sessões cheias de 5h equivalentes a 100% da cota semanal para Gemini (padrão 8.0, onde 1 sessão consome ~12.5% da semana).",
+      "label": "Razão de escalonamento: Gemini (sessões/sem)"
+    },
+    "gearing_anthropic": {
+      "description": "Número de sessões cheias de 5h equivalentes a 100% da cota semanal para Claude Pro (padrão 14.0, onde 1 sessão consome ~7.1% da semana).",
+      "label": "Razão de escalonamento: Claude Pro (sessões/sem)"
+    },
+    "gearing_openai": {
+      "description": "Número de sessões cheias de 5h equivalentes a 100% da cota semanal para OpenAI / Codex (padrão 16.0, onde 1 sessão consome ~6.25% da semana).",
+      "label": "Razão de escalonamento: Codex / OpenAI (sessões/sem)"
+    },
+    "gearing_default": {
+      "description": "Número padrão de sessões cheias de 5h equivalentes a 100% da cota semanal para outros modelos (padrão 10.0).",
+      "label": "Razão de escalonamento: Padrão (sessões/sem)"
+    },
     "show_glyph": {
       "description": "O ícone do provedor. A opção \"Desligado\" deixa a leitura por conta própria.",
       "label": "Mostrar ícone"
