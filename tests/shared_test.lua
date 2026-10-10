@@ -393,4 +393,55 @@ local planClaim, statsClaim = shared.analyzeResetCredits({ exhaustedClaudeCandid
 assert(statsClaim["anthropic"].canClaimNow == true, "provider at 100% weekly with available credit must flag canClaimNow")
 assert(planClaim.optimalClaimProviders["anthropic"] == true, "plan must register anthropic in optimalClaimProviders")
 
+-- 6. Schedule-aware active working hours calculation
+local cfg = {
+    scheduleAware = true,
+    sleepStartHour = 0,
+    sleepEndHour = 8,
+    weekendSleepStartHour = 1,
+    weekendSleepEndHour = 9,
+    mealPauseHours = 1,
+    burstDurationHours = 2.0,
+}
+
+-- Baseline: Monday 08:00 to Tuesday 08:00 (24 calendar hours)
+local monMorning = os.time({ year = 2026, month = 10, day = 12, hour = 8, min = 0, sec = 0 })
+local tueMorning = os.time({ year = 2026, month = 10, day = 13, hour = 8, min = 0, sec = 0 })
+local active24h = shared.calculateActiveHours(monMorning, tueMorning, cfg, true)
+assert(math.abs(active24h - 15.15) < 0.6,
+    string.format("active hours in 24h should discount sleep and meal pause, got %f", active24h))
+
+-- Out-of-schedule awake burst within weekend sleep window (01:00 to 09:00):
+local sun2am = os.time({ year = 2026, month = 10, day = 11, hour = 2, min = 0, sec = 0 })
+local sun8am = os.time({ year = 2026, month = 10, day = 11, hour = 8, min = 0, sec = 0 })
+local burstActive = shared.calculateActiveHours(sun2am, sun8am, cfg, true)
+local noBurstActive = shared.calculateActiveHours(sun2am, sun8am, cfg, false)
+assert(burstActive >= 2.0, "user active out-of-schedule must receive the 2h awake burst")
+assert(noBurstActive == 0.25, "user inactive during sleep hours must receive 0 active hours (clamped to 0.25)")
+
+-- Disabled schedule fallback:
+local disabledCfg = { scheduleAware = false }
+local rawCalendar = shared.calculateActiveHours(monMorning, tueMorning, disabledCfg)
+assert(rawCalendar == 24.0, "when scheduleAware is false, calculateActiveHours must return raw 24 calendar hours")
+
+-- 7. Imminent weekly expiration triage prioritization (Gemini vs multi-day buffer)
+-- Gemini: 84% used (16% free), reset in 16.7h calendar (~9.9h active working time)
+-- Codex: 29% used (71% free), reset in 80h calendar (~47h active working time)
+local geminiSunday = {
+    providerId = "gemini",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 45, window_secs = 18000, reset_at = isoIn(2.2 * 3600) },
+    weeklyMetric = { percent = 84, window_secs = 604800, reset_at = isoIn(16.7 * 3600) },
+}
+local codexSunday = {
+    providerId = "openai",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 2, window_secs = 18000, reset_at = isoIn(2.8 * 3600) },
+    weeklyMetric = { percent = 29, window_secs = 604800, reset_at = isoIn(80 * 3600) },
+}
+local geminiScore = shared.calculateModelTriageScore(geminiSunday, nil, os.time(), cfg, true)
+local codexScore = shared.calculateModelTriageScore(codexSunday, nil, os.time(), cfg, true)
+assert(geminiScore > codexScore,
+    string.format("Gemini with imminent reset in ~9.9h active hours (%f) must outrank Codex with 4-day buffer (%f)", geminiScore, codexScore))
+
 io.write("ok: shared timestamps, availability, provider order, mathematical triage score, and reset staggering\n")

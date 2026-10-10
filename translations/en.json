@@ -34,6 +34,30 @@
       "description": "How often the CLI is asked for fresh usage. Countdowns tick locally between calls.",
       "label": "Refresh interval (minutes)"
     },
+    "schedule_aware_triage": {
+      "description": "Discount sleep, meals, and off-hours to pace quota consumption against real active working hours.",
+      "label": "Schedule-aware triage"
+    },
+    "sleep_start_hour": {
+      "description": "Hour when sleep or off-hours begin on weekdays (e.g. 0 for midnight, 23 for 11 PM).",
+      "label": "Sleep / off-hours start (weekdays)"
+    },
+    "sleep_end_hour": {
+      "description": "Hour when active usage resumes in the morning on weekdays (e.g. 8 for 8 AM).",
+      "label": "Wake / active hours resume (weekdays)"
+    },
+    "weekend_sleep_start_hour": {
+      "description": "Hour when sleep or off-hours begin on weekends (e.g. 1 for 1 AM).",
+      "label": "Sleep / off-hours start (weekends)"
+    },
+    "weekend_sleep_end_hour": {
+      "description": "Hour when active usage resumes on weekends (e.g. 9 for 9 AM).",
+      "label": "Wake / active hours resume (weekends)"
+    },
+    "meal_pause_hours": {
+      "description": "Estimated inactive hours during daytime for lunch, dinner, or rest breaks.",
+      "label": "Daily meal & break pause (hours)"
+    },
     "show_glyph": {
       "description": "The provider's icon. Off leaves the reading on its own.",
       "label": "Show icon"

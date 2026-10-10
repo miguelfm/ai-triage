@@ -30,6 +30,30 @@
       "description": "Com que frequência a CLI é solicitada para obter dados de uso atualizados. As contagens regressivas são processadas localmente entre as chamadas.",
       "label": "Intervalo de atualização (minutos)"
     },
+    "schedule_aware_triage": {
+      "description": "Desconta horas de sono, refeições e descanso para calcular a velocidade de consumo sobre horas ativas reais.",
+      "label": "Triagem ciente da rotina"
+    },
+    "sleep_start_hour": {
+      "description": "Hora em que o sono ou período de descanso começa em dias úteis (ex: 0 para meia-noite, 23 para 23h).",
+      "label": "Início do repouso (dias úteis)"
+    },
+    "sleep_end_hour": {
+      "description": "Hora em que a rotina ativa recomeça pela manhã em dias úteis (ex: 8 para 8h).",
+      "label": "Fim do repouso (dias úteis)"
+    },
+    "weekend_sleep_start_hour": {
+      "description": "Hora em que o sono ou descanso começa aos fins de semana (ex: 1 para 1h).",
+      "label": "Início do repouso (fins de semana)"
+    },
+    "weekend_sleep_end_hour": {
+      "description": "Hora em que a rotina ativa recomeça aos fins de semana (ex: 9 para 9h).",
+      "label": "Fim do repouso (fins de semana)"
+    },
+    "meal_pause_hours": {
+      "description": "Horas estimadas de pausa durante o dia para almoço, jantar ou descanso.",
+      "label": "Pausa diária para refeições (horas)"
+    },
     "show_glyph": {
       "description": "O ícone do provedor. A opção \"Desligado\" deixa a leitura por conta própria.",
       "label": "Mostrar ícone"

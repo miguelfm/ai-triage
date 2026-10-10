@@ -25,6 +25,58 @@ default = 5
 min = 1
 max = 120
 
+[[setting]]
+key = "schedule_aware_triage"
+type = "bool"
+label_key = "settings.schedule_aware_triage.label"
+description_key = "settings.schedule_aware_triage.description"
+default = true
+
+[[setting]]
+key = "sleep_start_hour"
+type = "int"
+label_key = "settings.sleep_start_hour.label"
+description_key = "settings.sleep_start_hour.description"
+default = 0
+min = 0
+max = 23
+
+[[setting]]
+key = "sleep_end_hour"
+type = "int"
+label_key = "settings.sleep_end_hour.label"
+description_key = "settings.sleep_end_hour.description"
+default = 8
+min = 0
+max = 23
+
+[[setting]]
+key = "weekend_sleep_start_hour"
+type = "int"
+label_key = "settings.weekend_sleep_start_hour.label"
+description_key = "settings.weekend_sleep_start_hour.description"
+default = 1
+min = 0
+max = 23
+
+[[setting]]
+key = "weekend_sleep_end_hour"
+type = "int"
+label_key = "settings.weekend_sleep_end_hour.label"
+description_key = "settings.weekend_sleep_end_hour.description"
+default = 9
+min = 0
+max = 23
+
+[[setting]]
+key = "meal_pause_hours"
+type = "int"
+label_key = "settings.meal_pause_hours.label"
+description_key = "settings.meal_pause_hours.description"
+default = 1
+min = 0
+max = 3
+
 # ── Entries ───────────────────────────────────────────────────────────────────
 
 # One poller for the whole shell: a single `usage --json` call returns every

@@ -16,6 +16,8 @@ local ratio, headline, severityRole = shared.ratio, shared.headline, shared.seve
 local modelHeadlines, isCritical, dualMetrics = shared.modelHeadlines, shared.isCritical, shared.dualMetrics
 local isSessionStarted = shared.isSessionStarted
 local calculateModelTriageScore = shared.calculateModelTriageScore
+local calculateActiveHours = shared.calculateActiveHours
+local getScheduleConfig = shared.getScheduleConfig
 local modelGlyph = shared.modelGlyph
 local modelDisplayName = shared.modelDisplayName
 local elapsedPercent, pace = shared.elapsedPercent, shared.pace
@@ -1055,7 +1057,12 @@ local function formatResetTime(metric, windowLabel)
         local weekday = os.date("%a", at)
         local day = os.date("%d", at)
         local month = os.date("%b", at)
-        return string.format("%s, %s %s %s", weekday, month, day, clock)
+        local activeHours = calculateActiveHours(os.time(), at)
+        local activeStr = ""
+        if activeHours and activeHours > 0 and activeHours <= 24.0 and (at - os.time()) <= 86400 * 2 then
+            activeStr = string.format(" (~%.1fh active)", activeHours)
+        end
+        return string.format("%s, %s %s %s%s", weekday, month, day, clock, activeStr)
     else
         if os.date("%Y-%m-%d", at) == os.date("%Y-%m-%d") then
             return clock
@@ -1204,17 +1211,22 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
     end
 
     local shouldBurn = false
+    local burnSummary = nil
     if not isWeekly then
-        if remainingSecs <= 5400 and remainingQuota >= 25 and remainingSecs > 0 then
+        local H_s_active = calculateActiveHours(os.time(), os.time() + remainingSecs)
+        if (H_s_active <= 1.50 or remainingSecs <= 5400) and remainingQuota >= 25 and remainingSecs > 0 then
             shouldBurn = true
+            burnSummary = string.format("Session expires soon (~%.1fh active) · %d%% free to use", H_s_active, remainingQuota)
         elseif remainingSecs <= 9000 and remainingQuota >= 45 and remainingSecs > 0 then
             shouldBurn = true
         elseif paceDiff >= 20 and remainingQuota >= 40 and isSessionStarted(metric) then
             shouldBurn = true
         end
     else
-        if remainingSecs <= 86400 and remainingQuota >= 15 and remainingSecs > 0 then
+        local H_w_active = calculateActiveHours(os.time(), at)
+        if (H_w_active <= 14.0 or remainingSecs <= 86400) and remainingQuota >= 10 and remainingSecs > 0 then
             shouldBurn = true
+            burnSummary = string.format("Weekly reset soon (~%.1fh active left) · %d%% quota will expire", H_w_active, remainingQuota)
         elseif remainingSecs <= 172800 and remainingQuota >= 25 and remainingSecs > 0 then
             shouldBurn = true
         elseif remainingSecs <= 259200 and remainingQuota >= 35 and remainingSecs > 0 then
@@ -1233,7 +1245,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
             bg = "primary/0.18",
             border = "primary/0.45",
             cardBorder = "primary/0.45",
-            summary = string.format("%d%% free to use · %dpts under", remainingQuota, paceDiff),
+            summary = burnSummary or string.format("%d%% free to use · %dpts under", remainingQuota, paceDiff),
         }
     end
 
@@ -1756,10 +1768,12 @@ local function renderColumns(candidates)
     local staggerPlan, providerStats = shared.analyzeResetCredits(candidates)
     local resetCredits = collectResetCredits(candidates, staggerPlan)
 
-    -- Sort models by triage score (considering session & weekly pacing and staggering)
+    local scheduleConfig = getScheduleConfig()
+
+    -- Sort models by triage score (considering session & weekly pacing, schedule-aware active hours, and staggering)
     table.sort(modelItems, function(a, b)
-        local aScore = calculateModelTriageScore(a, staggerPlan)
-        local bScore = calculateModelTriageScore(b, staggerPlan)
+        local aScore = calculateModelTriageScore(a, staggerPlan, os.time(), scheduleConfig, true)
+        local bScore = calculateModelTriageScore(b, staggerPlan, os.time(), scheduleConfig, true)
         if math.abs(aScore - bScore) > 0.01 then
             return aScore > bScore
         end
