@@ -326,4 +326,71 @@ local scoreDepleted = shared.calculateModelTriageScore(modelDepletedWeekly)
 assert(scoreHealthy > scoreDepleted * 3,
     string.format("healthy weekly quota (%f) must dominate depleted weekly quota (%f)", scoreHealthy, scoreDepleted))
 
-io.write("ok: shared timestamps, availability, provider order, and mathematical triage score\n")
+-- 5. Reset credit analysis, collision detection, and staggering plan
+local mockCandidates = {
+    {
+        id = "anthropic",
+        display_name = "Claude",
+        metrics = {
+            { label = "Session (5h)", percent = 0, reset_at = isoIn(3 * 3600), window_secs = 18000 },
+            { label = "Weekly (7d)", percent = 74, reset_at = isoIn(50 * 3600), window_secs = 604800 },
+        },
+        reset_credits = {
+            available = 1,
+            credits = {
+                { title = "Claude Opus 5.5 launch reset", expires_at = isoIn(11.7 * 86400) },
+            },
+        },
+    },
+    {
+        id = "openai",
+        display_name = "Codex",
+        metrics = {
+            { label = "Codex 5h", percent = 2, reset_at = isoIn(3 * 3600), window_secs = 18000 },
+            { label = "Codex weekly", percent = 29, reset_at = isoIn(80 * 3600), window_secs = 604800 },
+        },
+        reset_credits = {
+            available = 3,
+            credits = {
+                { title = "Full reset 1", expires_at = isoIn(11.8 * 86400) },
+                { title = "Full reset 2", expires_at = isoIn(18.8 * 86400) },
+                { title = "Full reset 3", expires_at = isoIn(26.8 * 86400) },
+            },
+        },
+    },
+}
+
+local plan, stats = shared.analyzeResetCredits(mockCandidates)
+assert(plan.hasCollision == true, "collision must be detected between Claude and Codex expiring in ~11.7d")
+assert(plan.advanceProviderId == "anthropic", "claude must be chosen to advance due to higher weekly progress and single credit constraint")
+assert(plan.deferProviderId == "openai", "codex must be chosen to defer")
+
+-- Verify stagger bonus elevates advance provider score
+local claudeItem = {
+    providerId = "anthropic",
+    entry = mockCandidates[1],
+    sessionMetric = mockCandidates[1].metrics[1],
+    weeklyMetric = mockCandidates[1].metrics[2],
+}
+local normalClaudeScore = shared.calculateModelTriageScore(claudeItem, nil)
+local staggeredClaudeScore = shared.calculateModelTriageScore(claudeItem, plan)
+assert(staggeredClaudeScore > normalClaudeScore,
+    string.format("staggered score (%f) must exceed normal score (%f) to accelerate mid-cycle burn", staggeredClaudeScore, normalClaudeScore))
+
+-- Verify canClaimNow triggers when weekly is >= 95%
+local exhaustedClaudeCandidate = {
+    id = "anthropic",
+    display_name = "Claude",
+    metrics = {
+        { label = "Weekly (7d)", percent = 100, reset_at = isoIn(20 * 3600), window_secs = 604800 },
+    },
+    reset_credits = {
+        available = 1,
+        credits = { { title = "Launch reset", expires_at = isoIn(5 * 86400) } },
+    },
+}
+local planClaim, statsClaim = shared.analyzeResetCredits({ exhaustedClaudeCandidate })
+assert(statsClaim["anthropic"].canClaimNow == true, "provider at 100% weekly with available credit must flag canClaimNow")
+assert(planClaim.optimalClaimProviders["anthropic"] == true, "plan must register anthropic in optimalClaimProviders")
+
+io.write("ok: shared timestamps, availability, provider order, mathematical triage score, and reset staggering\n")

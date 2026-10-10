@@ -577,15 +577,161 @@ function M.severityRole(section, calm)
     return calm
 end
 
+-- ── Análise de ofertas de reseteo semanal e plan de desincronización (Staggering) ──
+-- Cando dous ou máis provedores teñen créditos/ofertas de reseteo semanal con datas
+-- de caducidade coincidentes (ou moi próximas, e.g. <7 días dentro do mesmo horizonte),
+-- é operativamente inviábel duplicar o consumo de ambos na mesma semana final.
+-- A estratexia óptima é o escalonamento (staggering):
+-- 1. Un dos provedores adiántase para queimar a súa cota semanal á metade do tempo (~3.5d)
+--    e solicitar o reseteo nese intre intermedio, completando dúas cotas esa semana.
+-- 2. O outro resérvase para facer o mesmo na semana final de caducidade.
+-- 3. Cando un provedor con créditos chega ao 100% de uso semanal (ou >=95%),
+--    declárase o "Momento óptimo de solicitar reseteo".
+function M.analyzeResetCredits(entries, nowTime)
+    nowTime = nowTime or os.time()
+    local providerStats = {}
+    local allExpiring = {}
+
+    for _, entry in ipairs(entries or {}) do
+        local id = entry.id
+        local baseId = M.baseProvider(id)
+        local displayName = tostring(entry.display_name or entry.name or id or "")
+        local rawCredits = type(entry.reset_credits) == "table" and entry.reset_credits.credits or nil
+        local availableCount = type(entry.reset_credits) == "table" and tonumber(entry.reset_credits.available) or 0
+        local sections = type(entry.sections) == "table" and entry.sections or {}
+
+        local _, wMetric = M.dualMetrics(entry.metrics)
+        local wPct = wMetric and tonumber(wMetric.percent) or 0
+        local wAt = wMetric and M.parseIso(wMetric.reset_at)
+        local wRemainingSecs = (wAt and wAt > nowTime) and (wAt - nowTime) or 604800
+
+        local list = {}
+        if rawCredits and #rawCredits > 0 then
+            for _, rc in ipairs(rawCredits) do
+                local expAt = M.parseIso(rc.expires_at)
+                if expAt and expAt > nowTime then
+                    list[#list + 1] = {
+                        title = rc.title or "Full reset",
+                        expiresAt = expAt,
+                        remainingSecs = expAt - nowTime,
+                    }
+                end
+            end
+        end
+
+        if #list == 0 then
+            for _, section in ipairs(sections) do
+                if section.type == "block" and tostring(section.label or ""):lower():find("reset credit") then
+                    for _, line in ipairs(section.body or {}) do
+                        local text = noctalia.string.trim(tostring(line or ""))
+                        local days = tonumber(text:match("(%d+)d")) or 0
+                        local hours = tonumber(text:match("(%d+)h")) or 0
+                        local expAt = nowTime + (days * 86400) + (hours * 3600)
+                        if expAt > nowTime then
+                            list[#list + 1] = {
+                                title = text:match("^(.-)%s+·") or text,
+                                expiresAt = expAt,
+                                remainingSecs = expAt - nowTime,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+
+        table.sort(list, function(a, b) return a.expiresAt < b.expiresAt end)
+
+        local count = math.max(availableCount, #list)
+        if count > 0 then
+            local earliest = list[1]
+            local stats = {
+                id = id,
+                baseId = baseId,
+                name = displayName,
+                glyph = M.providerGlyph(baseId),
+                available = count,
+                credits = list,
+                earliestExpiry = earliest and earliest.expiresAt or (nowTime + 604800 * 2),
+                earliestRemainingSecs = earliest and earliest.remainingSecs or (604800 * 2),
+                weeklyPercent = wPct,
+                weeklyRemainingSecs = wRemainingSecs,
+                canClaimNow = (wPct >= 95 and count > 0),
+            }
+            providerStats[baseId] = stats
+            if earliest then
+                allExpiring[#allExpiring + 1] = stats
+            end
+        end
+    end
+
+    local staggerPlan = {
+        hasCollision = false,
+        collidingProviders = {},
+        advanceProviderId = nil,
+        advanceName = nil,
+        deferProviderId = nil,
+        deferName = nil,
+        daysUntilExpiry = nil,
+        timeDiffHours = nil,
+        optimalClaimProviders = {},
+    }
+
+    for baseId, stats in pairs(providerStats) do
+        if stats.canClaimNow then
+            staggerPlan.optimalClaimProviders[baseId] = true
+        end
+    end
+
+    -- Detección de colisión: 2 ou máis provedores con créditos que caducan en <= 16 días
+    -- e con datas de caducidade separadas por menos de 7 días (mesma ventá semanal)
+    if #allExpiring >= 2 then
+        table.sort(allExpiring, function(a, b) return a.earliestExpiry < b.earliestExpiry end)
+        for i = 1, #allExpiring - 1 do
+            local p1 = allExpiring[i]
+            local p2 = allExpiring[i + 1]
+            local diffSecs = math.abs(p1.earliestExpiry - p2.earliestExpiry)
+            local horizonSecs = 16 * 86400
+
+            if p1.earliestRemainingSecs <= horizonSecs and p2.earliestRemainingSecs <= horizonSecs and diffSecs <= (7 * 86400) then
+                staggerPlan.hasCollision = true
+                staggerPlan.collidingProviders = { p1, p2 }
+                staggerPlan.timeDiffHours = diffSecs / 3600
+                staggerPlan.daysUntilExpiry = math.min(p1.earliestRemainingSecs, p2.earliestRemainingSecs) / 86400
+
+                -- Avaliación de fitness para adiantar (Advance Fitness):
+                -- Maior consumo semanal actual wPct = moito máis preto de acadar o 100% nun tempo curto (~3.5d).
+                -- Crédito único vs múltiples: se p1 só ten 1 crédito e p2 ten múltiples consecutivos (como Codex con 3),
+                -- p1 require asegurar o seu ciclo, mentres que p2 ten ciclos posteriores adicionais.
+                local p1Score = p1.weeklyPercent + (p1.available == 1 and 25 or 0)
+                local p2Score = p2.weeklyPercent + (p2.available == 1 and 25 or 0)
+
+                local advanceP = (p1Score >= p2Score) and p1 or p2
+                local deferP = (p1Score >= p2Score) and p2 or p1
+
+                staggerPlan.advanceProviderId = advanceP.baseId
+                staggerPlan.advanceName = advanceP.name
+                staggerPlan.deferProviderId = deferP.baseId
+                staggerPlan.deferName = deferP.name
+                break
+            end
+        end
+    end
+
+    return staggerPlan, providerStats
+end
+
 -- Modelo matemático de triaxe para optimización dinámica de recursos multi-fornecedor:
 -- Obxectivo: Maximizar o rendemento útil de tokens ao longo do tempo sen chegar ao esgotamento prematuro,
 -- garantindo que todos os servidores rematen en 0% (ou pouco antes) ao rematar o seu período semanal ou de sesión (5h).
 -- Arbitraxe de caducidade temporal: Se un modelo resetea a súa cota semanal en <= 48h, calquera cota libre
 -- non utilizada pérdese irremediabelmente; consumila antes do reseteo duplica a cota aproveitábel nesa ventá.
-function M.calculateModelTriageScore(item)
+-- Escalonamento de ofertas coincidentes: Se o modelo é candidato para adiantar o reseteo, a taxa semanal
+-- acelérase para acadar o 100% na metade do tempo (~3.5d) e activar o reseteo intermedio.
+function M.calculateModelTriageScore(item, staggerPlan, nowTime)
     if item == nil or M.unavailable(item.entry) then
         return -1000
     end
+    nowTime = nowTime or os.time()
 
     local sMetric = item.sessionMetric
     local wMetric = item.weeklyMetric
@@ -610,32 +756,48 @@ function M.calculateModelTriageScore(item)
     ----------------------------------------------------------------------
     local wFactor = 1.0
     local uResetWeekly = 0.0
+    local uStaggerAdvance = 0.0
 
     if wMetric ~= nil then
         local wAt = M.parseIso(wMetric.reset_at)
-        local wRemainingSecs = wAt and math.max(1, wAt - os.time()) or 604800
+        local wRemainingSecs = wAt and math.max(1, wAt - nowTime) or 604800
         local H_w = math.max(0.5, wRemainingSecs / 3600) -- Horas restantes ata reseteo semanal
 
-        -- Ratio de velocidade semanal requirida Pi_w:
-        -- Taxa nominal sustentábel: 100% / 168h = 0.595%/h
-        -- Taxa requirida: wFree / H_w
-        -- Pi_w = (wFree / H_w) / (100 / 168) = (wFree / H_w) * 1.68
-        -- Se Pi_w > 1.0: consumo atrasado respecto ao tempo (hai superávit para queimar)
-        -- Se Pi_w < 1.0: consumo adiantado respecto ao tempo (débese conservar)
-        local Pi_w = (wFree / H_w) * 1.68
-
-        -- Factor de conservación estrito se queda pouca cota e moito tempo
-        if wFree <= 12.0 and H_w > 24.0 then
-            wFactor = 0.08 + 0.15 * (wFree / 12.0)
-        else
-            -- Función de peso continuo: escala suave entre 0.20 e 1.80
-            wFactor = math.min(1.80, math.max(0.20, 0.40 + 0.60 * Pi_w))
+        -- Se este modelo pertence ao provedor designado para ADIANTAR reseteo (stagger leader):
+        -- O obxectivo é queimar o 100% da cota semanal na metade do tempo (~3.5d / 84h)
+        -- para solicitar o reseteo a metade de ciclo e duplicar o consumo semanal.
+        local isStaggerLeader = false
+        if staggerPlan and staggerPlan.hasCollision and staggerPlan.advanceProviderId then
+            local baseId = M.baseProvider(item.providerId or (item.entry and item.entry.id))
+            if baseId == staggerPlan.advanceProviderId then
+                isStaggerLeader = true
+            end
         end
 
-        -- Bonus de Arbitraxe Temporal por Reseteo Semanal Inminente:
-        -- "tratar de que o consumo esa semana sexa o dobre de ese fornecedor/modelo"
-        -- Se o reseteo semanal ocorre en <= 48h, calquera cota non consumida destrúese.
-        -- Consumila antes do reseteo duplica a capacidade aproveitábel nesa ventá temporal.
+        local targetH_w = H_w
+        if isStaggerLeader then
+            -- Horizonte acelerado á metade do tempo (mínimo 12h)
+            targetH_w = math.min(H_w, math.max(12.0, H_w * 0.50))
+        end
+
+        -- Ratio de velocidade semanal requirida Pi_w:
+        local Pi_w = (wFree / targetH_w) * 1.68
+
+        -- Factor de conservación estrito se queda pouca cota e moito tempo
+        if wFree <= 12.0 and H_w > 24.0 and not isStaggerLeader then
+            wFactor = 0.08 + 0.15 * (wFree / 12.0)
+        else
+            -- Función de peso continuo: escala suave
+            local maxWeight = isStaggerLeader and 2.20 or 1.80
+            wFactor = math.min(maxWeight, math.max(0.20, 0.40 + 0.60 * Pi_w))
+        end
+
+        -- Bonus de aceleración por escalonamento (stagger leader):
+        if isStaggerLeader and wFree >= 5.0 then
+            uStaggerAdvance = 25.0 * (wFree / 100.0) * math.min(1.0, (168.0 - targetH_w) / 168.0)
+        end
+
+        -- Bonus de Arbitraxe Temporal por Reseteo Semanal Inminente (<= 48h):
         if H_w <= 48.0 and wFree >= 5.0 then
             local cycleUrgency = (48.0 - H_w) / 48.0
             uResetWeekly = (wFree * 1.50) * (cycleUrgency * cycleUrgency)
@@ -651,14 +813,13 @@ function M.calculateModelTriageScore(item)
         local sAt = M.parseIso(sMetric.reset_at)
         local sStarted = M.isSessionStarted(sMetric)
         local sWindow = tonumber(sMetric.window_secs) or 18000
-        local sRemainingSecs = (sStarted and sAt and sAt > os.time())
-            and math.max(1, sAt - os.time())
+        local sRemainingSecs = (sStarted and sAt and sAt > nowTime)
+            and math.max(1, sAt - nowTime)
             or (sStarted and 1 or sWindow)
         local H_s = math.max(0.05, sRemainingSecs / 3600) -- Horas restantes de sesión
 
         if sStarted then
             -- Sesión activa: o reloxo de 5h está correndo.
-            -- Criterio de caducidade temporal: queimar para chegar a 0% xusto ás 5h.
             local sElapsedRatio = math.min(1.0, math.max(0.0, (sWindow - sRemainingSecs) / sWindow))
             local sUrgencyFactor = 1.0 + 2.20 * (sElapsedRatio * sElapsedRatio)
             local baseSession = sFree * sUrgencyFactor
@@ -670,18 +831,16 @@ function M.calculateModelTriageScore(item)
                 uBurnSession = 50.0 * (sFree / 100.0) * burnUrgency
             end
 
-            -- Acoplamento: a velocidade da sesión modúlase polo factor semanal
-            score = (baseSession * wFactor) + uBurnSession + uResetWeekly
+            -- Acoplamento: a velocidade da sesión modúlase polo factor semanal e os bonus
+            score = (baseSession * wFactor) + uBurnSession + uResetWeekly + uStaggerAdvance
         else
             -- Sesión non iniciada (0% consumo, reloxo parado):
-            -- Dá valor se a cota semanal ten superávit, pero ten menor inmediatez
-            -- que unha sesión que xa está a consumir tempo de reloxo.
             local baseSession = sFree * 0.75
-            score = (baseSession * wFactor) + uResetWeekly
+            score = (baseSession * wFactor) + uResetWeekly + uStaggerAdvance
         end
     else
         -- Sen métrica de sesión: optimízase directamente sobre a cota semanal
-        score = (wFree * wFactor) + uResetWeekly
+        score = (wFree * wFactor) + uResetWeekly + uStaggerAdvance
     end
 
     return score

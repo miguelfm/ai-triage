@@ -960,11 +960,12 @@ local function collectModelItems(candidates)
     return items
 end
 
-local function collectResetCredits(candidates)
+local function collectResetCredits(candidates, staggerPlan)
     local credits = {}
     for _, entry in ipairs(candidates) do
         local providerName = tostring(entry.display_name or entry.name or entry.id or "")
         local providerId = entry.id
+        local baseId = shared.baseProvider(providerId)
         local sections = type(entry.sections) == "table" and entry.sections or {}
         local rawCredits = type(entry.reset_credits) == "table" and entry.reset_credits.credits or nil
 
@@ -1001,6 +1002,18 @@ local function collectResetCredits(candidates)
                         expireTimestamp = os.time() + (days * 86400) + (hours * 3600)
                     end
 
+                    local role = nil
+                    if staggerPlan and staggerPlan.hasCollision then
+                        if baseId == staggerPlan.advanceProviderId then
+                            role = "advance"
+                        elseif baseId == staggerPlan.deferProviderId then
+                            role = "defer"
+                        end
+                    end
+                    if staggerPlan and staggerPlan.optimalClaimProviders and staggerPlan.optimalClaimProviders[baseId] then
+                        role = "claim"
+                    end
+
                     credits[#credits + 1] = {
                         providerId = providerId,
                         providerName = providerName,
@@ -1008,6 +1021,7 @@ local function collectResetCredits(candidates)
                         expiry = expiryText,
                         fullTitle = kind or text,
                         expiresAt = expireTimestamp or math.huge,
+                        role = role,
                     }
                 end
             end
@@ -1110,7 +1124,7 @@ local function formatSeconds(seconds)
     return string.format("%dm", rest)
 end
 
-local function assessTriage(metric, percent, elapsedPct, windowLabel, item)
+local function assessTriage(metric, percent, elapsedPct, windowLabel, item, staggerPlan)
     if metric == nil or percent == nil then return nil end
     local isWeekly = windowLabel == "7d"
     local remainingQuota = 100 - percent
@@ -1121,8 +1135,29 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item)
     local wMetric = item and item.weeklyMetric
     local wPct = wMetric and tonumber(wMetric.percent) or 0
     local isWeeklyExhausted = (wMetric ~= nil and wPct >= 100)
+    local baseId = item and shared.baseProvider(item.providerId or (item.entry and item.entry.id))
+
+    local hasCredit = false
+    if item and item.entry and type(item.entry.reset_credits) == "table" then
+        hasCredit = (tonumber(item.entry.reset_credits.available) or 0) > 0
+    end
+    if not hasCredit and staggerPlan and staggerPlan.optimalClaimProviders and baseId then
+        hasCredit = staggerPlan.optimalClaimProviders[baseId] == true
+    end
 
     if percent >= 100 or isWeeklyExhausted then
+        if isWeekly and hasCredit then
+            return {
+                status = "claim_reset",
+                label = "Claim Reset",
+                glyph = "ticket",
+                color = "#c084fc",
+                bg = "tertiary/0.22",
+                border = "tertiary/0.55",
+                cardBorder = "tertiary/0.55",
+                summary = "Cota semanal ao 100% · Momento óptimo para solicitar reseteo e duplicar cota!",
+            }
+        end
         return {
             status = "exhausted",
             label = "Exhausted",
@@ -1132,6 +1167,19 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item)
             border = "error/0.45",
             cardBorder = "error/0.45",
             summary = isWeeklyExhausted and "Weekly quota depleted" or "Quota depleted",
+        }
+    end
+
+    if isWeekly and staggerPlan and staggerPlan.hasCollision and staggerPlan.advanceProviderId == baseId and percent < 100 then
+        return {
+            status = "fast_track",
+            label = "Fast-track",
+            glyph = "flame",
+            color = "#38bdf8",
+            bg = "primary/0.20",
+            border = "primary/0.50",
+            cardBorder = "primary/0.50",
+            summary = string.format("Adiantar reseteo: queimar %d%% restante en ~3.5d para duplicar cota e desincronizar", remainingQuota),
         }
     end
 
@@ -1281,7 +1329,7 @@ local function kickstartWindow(target)
     end
 end
 
-local function renderMetricCard(item, metric, windowLabel)
+local function renderMetricCard(item, metric, windowLabel, staggerPlan)
     local isWeekly = windowLabel == "7d"
     local isLongName = #item.name > 12
 
@@ -1341,7 +1389,7 @@ local function renderMetricCard(item, metric, windowLabel)
     local resetTooltip = leftDuration ~= "" and ("Renews in " .. leftDuration) or nil
 
     local elapsedPct = calculateElapsed(metric, windowLabel)
-    local triage = assessTriage(metric, percent, elapsedPct, windowLabel, item)
+    local triage = assessTriage(metric, percent, elapsedPct, windowLabel, item, staggerPlan)
 
     if triage ~= nil then
         titleChildren[#titleChildren + 1] = ui.row({
@@ -1385,9 +1433,29 @@ local function renderMetricCard(item, metric, windowLabel)
     local cardPaddingV = 8
     local cardGap = 6
 
+    local actionBtn = nil
+    if isWeekly and triage and triage.status == "claim_reset" then
+        local dashUrl = shared.providerDashboard(item.providerId or (item.entry and item.entry.id))
+        if dashUrl then
+            actionBtn = ui.button({
+                text = "Claim",
+                glyph = "external-link",
+                variant = "primary",
+                controlSize = "xs",
+                tooltip = "Abrir dashboard para solicitar o reseteo semanal",
+                onClick = function()
+                    if type(noctalia.runAsync) == "function" then
+                        noctalia.runAsync("xdg-open '" .. dashUrl .. "'")
+                    end
+                end,
+            })
+        end
+    end
+
     local topRow = ui.row({ gap = 4, align = "center" }, {
         ui.row({ gap = 4, align = "center" }, titleChildren),
         ui.spacer({ flexGrow = 1 }),
+        actionBtn,
         ui.row({ gap = 5, align = "center", justify = "end" }, rightMeta),
     })
 
@@ -1535,30 +1603,69 @@ end
 
 local function renderCreditCard(credit)
     local fgColor = creditCountdownColor(credit)
+    local roleBadge = nil
+    if credit.role == "claim" then
+        roleBadge = ui.row({
+            paddingH = 4, paddingV = 1, radius = 4,
+            fill = "tertiary/0.20", border = "tertiary/0.50", borderWidth = 1,
+        }, {
+            ui.label({ text = "RECLAMAR XA", fontSize = 9, fontWeight = "bold", color = "#c084fc" }),
+        })
+    elseif credit.role == "advance" then
+        roleBadge = ui.row({
+            paddingH = 4, paddingV = 1, radius = 4,
+            fill = "primary/0.20", border = "primary/0.50", borderWidth = 1,
+        }, {
+            ui.label({ text = "ADIANTAR", fontSize = 9, fontWeight = "bold", color = "#38bdf8" }),
+        })
+    elseif credit.role == "defer" then
+        roleBadge = ui.row({
+            paddingH = 4, paddingV = 1, radius = 4,
+            fill = "outline/0.15", border = "outline/0.30", borderWidth = 1,
+        }, {
+            ui.label({ text = "DIFERIR", fontSize = 9, fontWeight = "medium", color = "on_surface_variant" }),
+        })
+    end
+
+    local dashUrl = shared.providerDashboard(credit.providerId)
+    local openBtn = dashUrl and ui.button({
+        glyph = "external-link",
+        variant = "ghost",
+        controlSize = "xs",
+        tooltip = "Abrir dashboard para xestionar reseteo",
+        onClick = function()
+            if type(noctalia.runAsync) == "function" then
+                noctalia.runAsync("xdg-open '" .. dashUrl .. "'")
+            end
+        end,
+    }) or nil
+
     return ui.column(cardStyle(6), {
-        ui.row({ gap = 8, align = "center", tooltip = credit.fullTitle }, {
+        ui.row({ gap = 6, align = "center", tooltip = credit.fullTitle }, {
             ui.row({
-                width = 30, height = 30, radius = 7,
+                width = 26, height = 26, radius = 6,
                 fill = "primary/0.14", align = "center", justify = "center",
             }, {
-                ui.glyph({ name = credit.glyph, size = 18, color = "primary" }),
+                ui.glyph({ name = credit.glyph, size = 15, color = "primary" }),
             }),
             ui.label({
                 text = credit.providerName,
-                fontSize = 17,
+                fontSize = 15,
                 fontWeight = "bold",
                 color = "on_surface",
                 maxLines = 1,
             }),
+            roleBadge,
             ui.spacer({ flexGrow = 1 }),
+            openBtn,
             ui.row({
-                gap = 6, align = "center",
-                paddingH = 6, paddingV = 2,
+                gap = 5, align = "center",
+                paddingH = 5, paddingV = 2,
             }, {
-                ui.glyph({ name = "clock", size = 16, color = fgColor }),
+                ui.glyph({ name = "clock", size = 14, color = fgColor }),
                 ui.label({
                     text = credit.expiry,
-                    fontSize = 16,
+                    fontSize = 14,
                     fontWeight = "semibold",
                     color = fgColor,
                     maxLines = 1,
@@ -1646,12 +1753,13 @@ local function renderColumns(candidates)
     topRowChildren[#topRowChildren + 1] = ui.row({ gap = 4, align = "center" }, headerActions)
 
     local modelItems = collectModelItems(candidates)
-    local resetCredits = collectResetCredits(candidates)
+    local staggerPlan, providerStats = shared.analyzeResetCredits(candidates)
+    local resetCredits = collectResetCredits(candidates, staggerPlan)
 
-    -- Ordenar os modelos por triaxe (tendo en conta consumo e tempo horario e semanal)
+    -- Ordenar os modelos por triaxe (tendo en conta consumo e tempo horario e semanal e escalonamento)
     table.sort(modelItems, function(a, b)
-        local aScore = calculateModelTriageScore(a)
-        local bScore = calculateModelTriageScore(b)
+        local aScore = calculateModelTriageScore(a, staggerPlan)
+        local bScore = calculateModelTriageScore(b, staggerPlan)
         if math.abs(aScore - bScore) > 0.01 then
             return aScore > bScore
         end
@@ -1673,11 +1781,11 @@ local function renderColumns(candidates)
     local sessionCards = {}
     local weeklyCards = {}
     for _, item in ipairs(modelItems) do
-        local sCard = renderMetricCard(item, item.sessionMetric, "5h")
+        local sCard = renderMetricCard(item, item.sessionMetric, "5h", staggerPlan)
         if sCard ~= nil then
             sessionCards[#sessionCards + 1] = sCard
         end
-        local wCard = renderMetricCard(item, item.weeklyMetric, "7d")
+        local wCard = renderMetricCard(item, item.weeklyMetric, "7d", staggerPlan)
         if wCard ~= nil then
             weeklyCards[#weeklyCards + 1] = wCard
         end
@@ -1686,6 +1794,70 @@ local function renderColumns(candidates)
     local creditCards = {}
     for _, credit in ipairs(resetCredits) do
         creditCards[#creditCards + 1] = renderCreditCard(credit)
+    end
+
+    if staggerPlan and staggerPlan.hasCollision then
+        local stratCard = ui.column(cardStyle(6), {
+            ui.row({ gap = 6, align = "center" }, {
+                ui.glyph({ name = "calendar-clock", size = 15, color = "primary" }),
+                ui.label({
+                    text = string.format("Plan de Reseteos (Colisión en %.0fd)", staggerPlan.daysUntilExpiry or 12),
+                    fontSize = 13, fontWeight = "bold", color = "primary",
+                }),
+            }),
+            ui.label({
+                text = string.format("%s e %s caducan á vez (~22 Out). Desincronización:", staggerPlan.advanceName or "Claude", staggerPlan.deferName or "Codex"),
+                fontSize = 11, color = "on_surface_variant",
+            }),
+            ui.row({ gap = 6, align = "start" }, {
+                ui.glyph({ name = "arrow-right", size = 12, color = "#38bdf8" }),
+                ui.label({
+                    text = string.format("1. Adiantar %s: queimar cota ata 100%% en ~3.5d e solicitar reseteo.", staggerPlan.advanceName or "Claude"),
+                    fontSize = 11, fontWeight = "semibold", color = "on_surface", flexGrow = 1,
+                }),
+            }),
+            ui.row({ gap = 6, align = "start" }, {
+                ui.glyph({ name = "arrow-right", size = 12, color = "outline" }),
+                ui.label({
+                    text = string.format("2. Diferir %s: reservar crédito para a semana final (22 Out).", staggerPlan.deferName or "Codex"),
+                    fontSize = 11, color = "on_surface_variant", flexGrow = 1,
+                }),
+            }),
+        })
+        table.insert(creditCards, 1, stratCard)
+    end
+
+    for baseId, isClaim in pairs(staggerPlan and staggerPlan.optimalClaimProviders or {}) do
+        if isClaim then
+            local stats = providerStats and providerStats[baseId]
+            local pName = stats and stats.name or baseId
+            local dashUrl = shared.providerDashboard(baseId)
+            local claimCard = ui.column(cardStyle(6), {
+                ui.row({ gap = 6, align = "center" }, {
+                    ui.glyph({ name = "sparkles", size = 16, color = "#c084fc" }),
+                    ui.label({
+                        text = "Momento Óptimo de Reseteo!",
+                        fontSize = 13, fontWeight = "bold", color = "#c084fc",
+                    }),
+                }),
+                ui.label({
+                    text = string.format("%s esgotou o 100%% semanal. Solicita o reseteo agora para duplicar a cota!", pName),
+                    fontSize = 11, color = "on_surface",
+                }),
+                dashUrl and ui.button({
+                    text = "Abrir Dashboard",
+                    glyph = "external-link",
+                    variant = "primary",
+                    controlSize = "xs",
+                    onClick = function()
+                        if type(noctalia.runAsync) == "function" then
+                            noctalia.runAsync("xdg-open '" .. dashUrl .. "'")
+                        end
+                    end,
+                }) or nil,
+            })
+            table.insert(creditCards, 1, claimCard)
+        end
     end
     if #creditCards == 0 then
         creditCards[#creditCards + 1] = ui.column(CARD, {
