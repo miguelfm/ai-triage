@@ -60,7 +60,7 @@ case "$TARGET" in
       exit 1
     fi
     notify "Gemini (Antigravity)" "Sending minimal ping to start 5h window..."
-    if OUT="$("$CMD" --model gemini-3.8-flash-low --disable-slash-commands -p "1" 2>&1)"; then
+    if OUT="$("$CMD" --dangerously-skip-permissions --model gemini-3.8-flash-low --disable-slash-commands -p "1" 2>&1)"; then
       notify "Gemini (Antigravity)" "✓ 5h window started! Quota resets in 5 hours."
     else
       ERR_LINE="$(echo "$OUT" | grep -iE "error|429|exhaust" | head -n 1)"
@@ -78,8 +78,8 @@ case "$TARGET" in
       exit 1
     fi
     notify "Claude & GPT OSS (Antigravity)" "Sending minimal ping to start 5h window..."
-    if OUT="$("$CMD" --model gpt-oss-120b-medium --disable-slash-commands -p "1" 2>&1 || \
-             "$CMD" --model claude-sonnet-4-6 --disable-slash-commands -p "1" 2>&1)"; then
+    if OUT="$("$CMD" --dangerously-skip-permissions --model gpt-oss-120b-medium --disable-slash-commands -p "1" 2>&1 || \
+             "$CMD" --dangerously-skip-permissions --model claude-sonnet-4-6 --disable-slash-commands -p "1" 2>&1)"; then
       notify "Claude & GPT OSS (Antigravity)" "✓ 5h window started! Quota resets in 5 hours."
     else
       ERR_LINE="$(echo "$OUT" | grep -iE "error|429|exhaust" | head -n 1)"

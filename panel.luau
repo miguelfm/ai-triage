@@ -1341,7 +1341,7 @@ local function kickstartWindow(target)
             if type(render) == "function" then
                 render()
             end
-        end)
+        end, 30000)
         if launched == false then
             kickstarting[target] = nil
             if type(noctalia.notifyError) == "function" then

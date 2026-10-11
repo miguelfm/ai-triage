@@ -427,20 +427,23 @@ assert(rawCalendar == 24.0, "when scheduleAware is false, calculateActiveHours m
 -- 7. Imminent weekly expiration triage prioritization (Gemini vs multi-day buffer)
 -- Gemini: 84% used (16% free), reset in 16.7h calendar (~9.9h active working time)
 -- Codex: 29% used (71% free), reset in 80h calendar (~47h active working time)
+local function isoAt(ts)
+    return os.date("!%Y-%m-%dT%H:%M:%SZ", ts)
+end
 local geminiSunday = {
     providerId = "gemini",
     entry = { status = "ready" },
-    sessionMetric = { percent = 45, window_secs = 18000, reset_at = isoIn(2.2 * 3600) },
-    weeklyMetric = { percent = 84, window_secs = 604800, reset_at = isoIn(16.7 * 3600) },
+    sessionMetric = { percent = 45, window_secs = 18000, reset_at = isoAt(sun2am + 2.2 * 3600) },
+    weeklyMetric = { percent = 84, window_secs = 604800, reset_at = isoAt(sun2am + 16.7 * 3600) },
 }
 local codexSunday = {
     providerId = "openai",
     entry = { status = "ready" },
-    sessionMetric = { percent = 2, window_secs = 18000, reset_at = isoIn(2.8 * 3600) },
-    weeklyMetric = { percent = 29, window_secs = 604800, reset_at = isoIn(80 * 3600) },
+    sessionMetric = { percent = 2, window_secs = 18000, reset_at = isoAt(sun2am + 2.8 * 3600) },
+    weeklyMetric = { percent = 29, window_secs = 604800, reset_at = isoAt(sun2am + 80 * 3600) },
 }
-local geminiScore = shared.calculateModelTriageScore(geminiSunday, nil, os.time(), cfg, true)
-local codexScore = shared.calculateModelTriageScore(codexSunday, nil, os.time(), cfg, true)
+local geminiScore = shared.calculateModelTriageScore(geminiSunday, nil, sun2am, cfg, true)
+local codexScore = shared.calculateModelTriageScore(codexSunday, nil, sun2am, cfg, true)
 assert(geminiScore > codexScore,
     string.format("Gemini with imminent reset in ~9.9h active hours (%f) must outrank Codex with 4-day buffer (%f)", geminiScore, codexScore))
 

@@ -301,20 +301,12 @@ function M.isSessionStarted(metric)
         elapsed = math.floor((elapsedSecs / window) * 100)
     end
 
-    -- An active session has consumed quota (>0%), has elapsed significantly
-    -- (>= 10% elapsed, e.g. >30m into a 5h window), or has less than 90% remaining (<4h 30m of 5h).
-    local isCodex = type(metric.label) == "string" and metric.label:lower():find("codex") ~= nil
-    if isCodex then
-        -- Codex (OpenAI) does not use fixed slots; its window is strictly rolling from the prompt.
-        -- Any session that has elapsed (> 0% elapsed) or has less than 4h 58m remaining is actively running.
-        if (elapsed and elapsed > 0) or (remaining > 0 and remaining < 17880) then
-            return true
-        end
-    else
-        -- Anthropic / others with fixed slots (e.g. slot can be up to 15-20m in before use):
-        if (elapsed and elapsed >= 10) or (remaining > 0 and remaining < (window * 0.90)) then
-            return true
-        end
+    -- An active session has consumed quota (>0%), has elapsed time (>0% elapsed),
+    -- or has an active future countdown ticking down within the rolling window (e.g. <= window + 60s).
+    -- Only sessions without any future reset schedule or expired sessions are unstarted.
+    local elapsed = M.elapsedPercent(metric.detail)
+    if (elapsed and elapsed > 0) or (remaining > 0 and remaining < (window + 60)) then
+        return true
     end
 
     return false
@@ -992,8 +984,8 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         -- Reflects that quotas expire permanently if not consumed.
         -- When active hours <= 24h, remaining 5h sessions are scarce (e.g. <= 2 sessions left).
         if H_w <= 24.0 and wFree >= 5.0 then
-            local ratio = math.min(4.0, (16.0 / math.max(1.0, H_w))^1.2)
-            uResetWeekly = wFree * ratio * 4.2
+            local ratio = math.min(6.0, (24.0 / math.max(1.0, H_w))^1.25)
+            uResetWeekly = 50.0 + (wFree * 4.0 * ratio)
         end
 
         -- Bottleneck urgency bonus for high-gearing models (K >= 8):
