@@ -4,7 +4,7 @@ version = "1.0.0"
 plugin_api = 22
 author = "miguelfm"
 license = "MIT"
-icon = "brain"
+icon = "scale"
 description = "AI quota triage, smart model routing and rolling window kickstarting."
 tags = ["bar", "panel", "ai", "indicator", "utility"]
 # The CLI owns credentials, vendor endpoints and caching. This plugin only runs

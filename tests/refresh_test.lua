@@ -142,14 +142,14 @@ for value in vendorSetting:gmatch('{ value = "([^"]+)"') do
 end
 assert(#offered > 10, "the vendor dropdown should have been read from the manifest")
 for _, id in ipairs(offered) do
-    -- "brain" is the fallback, so a provider still on it has no glyph of its own.
-    assert(shared.providerGlyph(id) ~= "brain", "missing glyph for " .. id)
+    -- "scale" is the fallback, so a provider still on it has no glyph of its own.
+    assert(shared.providerGlyph(id) ~= "scale", "missing glyph for " .. id)
     assert(shared.providerDashboard(id) ~= nil, "missing quota service link for " .. id)
 end
 
 -- A named account is drawn with its provider's glyph, not the fallback.
 assert(shared.providerGlyph("anthropic@gmail") == shared.providerGlyph("anthropic"),
     "an account should inherit the provider's glyph")
-assert(shared.providerGlyph("unknown") == "brain", "an unknown provider falls back")
+assert(shared.providerGlyph("unknown") == "scale", "an unknown provider falls back")
 
 io.write("ok: refresh queue coalesced, timeouts rejected, provider visuals complete\n")

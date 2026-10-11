@@ -77,7 +77,7 @@ function M.baseProvider(id)
 end
 
 function M.providerGlyph(id)
-    return PROVIDER_GLYPHS[M.baseProvider(id)] or "brain"
+    return PROVIDER_GLYPHS[M.baseProvider(id)] or "scale"
 end
 
 function M.providerDashboard(id)

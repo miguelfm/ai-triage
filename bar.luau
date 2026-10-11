@@ -562,7 +562,7 @@ local function render()
         -- One glyph, coloured by the state. A second icon beside it would read as
         -- a second problem.
         children[1] = ui.glyph({
-            name = "brain", size = 14,
+            name = "scale", size = 14,
             color = failure.code ~= "" and "error" or "on_surface_variant",
         })
     elseif hidden > 0 then

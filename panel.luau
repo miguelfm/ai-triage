@@ -956,7 +956,7 @@ local function renderColumns(candidates)
             width = 32, height = 32, radius = 8,
             fill = "primary/0.14", align = "center", justify = "center",
         }, {
-            ui.glyph({ name = "brain", size = 20, color = "primary" }),
+            ui.glyph({ name = "scale", size = 20, color = "primary" }),
         }),
         ui.label({ text = noctalia.tr("ui.title"), fontSize = 19, fontWeight = "bold", color = "on_surface" }),
     }
@@ -1198,7 +1198,7 @@ function render()
         panel.render(ui.column({ flexGrow = 1, padding = 14, align = "center", justify = "center" }, {
             ui.column({ gap = 10, width = 320 }, {
                 ui.row({ gap = 8, align = "center" }, {
-                    ui.glyph({ name = "brain", size = 18, color = "primary" }),
+                    ui.glyph({ name = "scale", size = 18, color = "primary" }),
                     ui.label({ text = noctalia.tr("ui.title"), fontSize = 15,
                                fontWeight = "bold", color = "on_surface" }),
                 }),
@@ -1221,7 +1221,7 @@ function render()
         panel.render(ui.column({ flexGrow = 1, padding = 14, align = "center", justify = "center" }, {
             ui.column({ gap = 10, width = 320 }, {
                 ui.row({ gap = 8, align = "center" }, {
-                    ui.glyph({ name = "brain", size = 18, color = "primary" }),
+                    ui.glyph({ name = "scale", size = 18, color = "primary" }),
                     ui.label({ text = noctalia.tr("ui.title"), fontSize = 15,
                                fontWeight = "bold", color = "on_surface" }),
                 }),
