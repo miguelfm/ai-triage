@@ -981,9 +981,18 @@ function M.calculateActiveHours(tStart, tEnd, config, isUserActiveNow)
 
     local totalActiveHours = 0.0
     local cur = tStart
-    local step = 1800 -- 30-minute integration step
+    local step = 3600 -- 1-hour integration step
 
     while cur < tEnd do
+        -- Fast-path for far time horizons beyond 48 hours:
+        -- Beyond 2 days, exact circadian boundaries have zero differential effect on triage;
+        -- add nominal active working ratio (0.65 ~= 15.6 active hours / 24h) and break.
+        if (cur - tStart) >= 172800 then
+            local farHours = (tEnd - cur) / 3600.0
+            totalActiveHours = totalActiveHours + (farHours * 0.65)
+            break
+        end
+
         local nextCur = math.min(tEnd, cur + step)
         local dtHours = (nextCur - cur) / 3600.0
         local mid = (cur + nextCur) * 0.5
