@@ -113,6 +113,10 @@ Point the panel at a specific provider:
 noctalia msg plugin miguelfm/ai-triage:poller all select anthropic
 ```
 
+## Documentation
+
+For a comprehensive deep dive into the mathematical triage model, circadian active-hours pacing, model quota gearing ($K_m$), and reset credit collision desynchronization, see the [Internal Technical & Mathematical Specification](docs/mathematical_model.md).
+
 ## License
 
 MIT © [miguelfm](https://github.com/miguelfm)
