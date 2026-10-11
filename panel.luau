@@ -1386,14 +1386,32 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
 
     if metric == nil or unavailable(item.entry) then
         local unavail = unavailable(item.entry)
-        return ui.column(CARD, {
-            ui.row({ gap = 6, align = "center" }, {
-                ui.row({ gap = 5, align = "center" }, titleChildren),
+        return ui.column({
+            gap = 6,
+            paddingH = 10,
+            paddingV = 8,
+            radius = CARD.radius,
+            fill = CARD.fill,
+            border = CARD.border,
+            borderWidth = CARD.borderWidth,
+        }, {
+            ui.row({ gap = 4, align = "center" }, {
+                ui.row({ gap = 4, align = "center" }, titleChildren),
                 ui.spacer({ flexGrow = 1 }),
-                unavail and ui.row({ gap = 4, align = "center" }, {
-                    ui.glyph({ name = "alert-circle", size = 14, color = "error" }),
-                    ui.label({ text = noctalia.tr("ui.unavailable"), fontSize = 13, color = "error" }),
+                unavail and ui.row({ gap = 4, align = "center", paddingH = 6, paddingV = 2, radius = 5, fill = "error/0.12" }, {
+                    ui.glyph({ name = "alert-circle", size = 12, color = "error" }),
+                    ui.label({ text = noctalia.tr("ui.unavailable"), fontSize = 12, fontWeight = "medium", color = "error" }),
                 }) or ui.label({ text = "—", fontSize = 14, color = "on_surface_variant" }),
+            }),
+            ui.column({ gap = 1, align = "stretch" }, {
+                ui.progress({ progress = 0, fill = "on_surface/0.10", track = "on_surface/0.05", radius = 4, height = 8 }),
+                ui.row({ height = 5 }),
+            }),
+            ui.row({ gap = 8, align = "center", justify = "center" }, {
+                ui.row({ gap = 5, align = "center", paddingH = 8, paddingV = 2, radius = 5, fill = "on_surface/0.06" }, {
+                    ui.glyph({ name = "slash", size = 12, color = "on_surface_variant" }),
+                    ui.label({ text = "Offline", fontSize = 12, color = "on_surface_variant" }),
+                }),
             }),
         })
     end
@@ -1405,11 +1423,12 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
     local showValue = value ~= "" and value ~= string.format("%d%%", percent)
 
     local resetTimeText = formatResetTime(metric, windowLabel)
+    local isStarted = isWeekly or isSessionStarted(metric)
     local leftDuration = ""
-    if windowLabel == "7d" or isSessionStarted(metric) then
+    if isStarted then
         leftDuration = countdown(metric)
         if (leftDuration == "now" or leftDuration == noctalia.tr("ui.now"))
-            and windowLabel ~= "7d" and not isSessionStarted(metric) then
+            and not isWeekly and not isSessionStarted(metric) then
             leftDuration = ""
         end
     end
@@ -1494,21 +1513,27 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
         height = 8,
     })
 
-    local progressElement = progressBar
-    if elapsedPct ~= nil then
-        local leftFlex = math.max(1, elapsedPct)
-        local rightFlex = math.max(1, 100 - elapsedPct)
-        local paceDiff = elapsedPct - percent
+    local effectiveElapsed = elapsedPct
+    if not isWeekly and not isStarted then
+        effectiveElapsed = 0
+    end
+
+    local markerChildren = {}
+    local markerTip = "Session not started · 0% elapsed · 0% quota used"
+    local markerColor = "#38bdf8"
+
+    if effectiveElapsed ~= nil then
+        local leftFlex = math.max(1, effectiveElapsed)
+        local rightFlex = math.max(1, 100 - effectiveElapsed)
+        local paceDiff = effectiveElapsed - percent
         local paceStatus = paceDiff >= 0
             and string.format("+%d%% quota free", paceDiff)
             or string.format("%d%% over pace", -paceDiff)
-        local markerTip = string.format("Time: %d%% elapsed · Quota: %d%% used (%s)",
-            elapsedPct, percent, paceStatus)
+        markerTip = string.format("Time: %d%% elapsed · Quota: %d%% used (%s)",
+            effectiveElapsed, percent, paceStatus)
+        markerColor = paceDiff >= 0 and "#38bdf8" or "#fb923c"
 
-        local markerColor = paceDiff >= 0 and "#38bdf8" or "#fb923c"
-
-        local markerChildren = {}
-        if elapsedPct > 1 then
+        if effectiveElapsed > 1 then
             markerChildren[#markerChildren + 1] = ui.spacer({ flexGrow = leftFlex })
         end
         markerChildren[#markerChildren + 1] = ui.box({
@@ -1517,37 +1542,42 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
             radius = 1.5,
             fill = markerColor,
         })
-        if elapsedPct < 99 then
+        if effectiveElapsed < 99 then
             markerChildren[#markerChildren + 1] = ui.spacer({ flexGrow = rightFlex })
         end
-
-        local markerRow = ui.row({
-            height = 5,
-            align = "center",
-            paddingH = 0,
-            tooltip = markerTip,
-        }, markerChildren)
-
-        progressElement = ui.column({ gap = 1, align = "stretch" }, {
-            progressBar,
-            markerRow,
-        })
+    else
+        markerChildren[#markerChildren + 1] = ui.spacer({ flexGrow = 1 })
     end
+
+    local markerRow = ui.row({
+        height = 5,
+        align = "center",
+        paddingH = 0,
+        tooltip = markerTip,
+    }, markerChildren)
+
+    local progressElement = ui.column({ gap = 1, align = "stretch" }, {
+        progressBar,
+        markerRow,
+    })
 
     local body = { topRow, progressElement }
 
     local bottomRowElements = {}
-    if resetTimeText ~= "" then
+
+    -- Element 1: Clock pill (Always rendered to guarantee vertical symmetry)
+    if isWeekly or isStarted then
         bottomRowElements[#bottomRowElements + 1] = ui.row({
             gap = 5, align = "center", justify = "center",
             paddingH = 8,
             paddingV = 2,
             radius = 5,
             fill = "on_surface/0.08",
+            tooltip = resetTooltip or (isWeekly and "Weekly quota reset schedule" or "5h rolling window reset time"),
         }, {
             ui.glyph({ name = "clock", size = 13, color = "on_surface_variant" }),
             ui.label({
-                text = resetTimeText,
+                text = resetTimeText ~= "" and resetTimeText or "--:--",
                 fontSize = 13,
                 fontWeight = "medium",
                 color = "on_surface",
@@ -1555,8 +1585,31 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 maxLines = 1,
             }),
         })
+    else
+        -- Unstarted 5h session: Red indicator with "--:--"
+        bottomRowElements[#bottomRowElements + 1] = ui.row({
+            gap = 5, align = "center", justify = "center",
+            paddingH = 8,
+            paddingV = 2,
+            radius = 5,
+            fill = "error/0.10",
+            border = "error/0.25",
+            borderWidth = 1,
+            tooltip = "Session not started · Rolling 5h timer begins on first prompt",
+        }, {
+            ui.glyph({ name = "clock", size = 13, color = "error" }),
+            ui.label({
+                text = "--:--",
+                fontSize = 13,
+                fontWeight = "bold",
+                color = "error",
+                textAlign = "center",
+                maxLines = 1,
+            }),
+        })
     end
 
+    -- Element 2: Complementary status or action element (Always rendered)
     if isWeekly then
         local gearing = getModelGearing(item and (item.providerId or (item.entry and item.entry.id)), item and item.name)
         if gearing then
@@ -1578,34 +1631,87 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 }),
             })
         end
+    else
+        -- 5h Session card complementary action / status
+        local ksTarget = kickstartTarget(item)
+        local justKickstarted = ksTarget ~= nil and kickstartedAt[ksTarget] ~= nil
+            and (os.time() - kickstartedAt[ksTarget]) < 18000
+        local isWeeklyExhausted = (item and item.weeklyMetric ~= nil and (tonumber(item.weeklyMetric.percent) or 0) >= 100)
+        local canKickstart = ksTarget ~= nil and not justKickstarted
+            and not isStarted and percent == 0
+            and not isWeeklyExhausted
+            and not unavailable(item and item.entry)
+
+        if canKickstart then
+            local isBusy = kickstarting[ksTarget] == true
+            bottomRowElements[#bottomRowElements + 1] = ui.button({
+                glyph = isBusy and "loader-2" or "bolt",
+                text = isBusy and "Starting..." or "Start 5h",
+                variant = "outline",
+                controlSize = "xs",
+                enabled = not isBusy,
+                tooltip = "Send 1-token prompt to trigger 5h rolling window now",
+                onClick = function()
+                    kickstartWindow(ksTarget)
+                end,
+            })
+        elseif isWeeklyExhausted then
+            bottomRowElements[#bottomRowElements + 1] = ui.row({
+                gap = 4, align = "center", justify = "center",
+                paddingH = 7,
+                paddingV = 2,
+                radius = 5,
+                fill = "error/0.12",
+                border = "error/0.25",
+                borderWidth = 1,
+                tooltip = "Weekly quota is 100% exhausted. Sessions cannot be started until weekly reset.",
+            }, {
+                ui.glyph({ name = "alert-circle", size = 12, color = "error" }),
+                ui.label({
+                    text = "7d exhausted",
+                    fontSize = 12,
+                    fontWeight = "medium",
+                    color = "error",
+                }),
+            })
+        elseif isStarted then
+            bottomRowElements[#bottomRowElements + 1] = ui.row({
+                gap = 4, align = "center", justify = "center",
+                paddingH = 7,
+                paddingV = 2,
+                radius = 5,
+                fill = "primary/0.10",
+                tooltip = "5-hour rolling session window currently active",
+            }, {
+                ui.glyph({ name = "bolt", size = 12, color = "primary" }),
+                ui.label({
+                    text = "5h rolling",
+                    fontSize = 12,
+                    fontWeight = "medium",
+                    color = "primary",
+                }),
+            })
+        else
+            bottomRowElements[#bottomRowElements + 1] = ui.row({
+                gap = 4, align = "center", justify = "center",
+                paddingH = 7,
+                paddingV = 2,
+                radius = 5,
+                fill = "on_surface/0.08",
+                tooltip = "Session window not currently active",
+            }, {
+                ui.glyph({ name = "clock-pause", size = 12, color = "on_surface_variant" }),
+                ui.label({
+                    text = "Unstarted",
+                    fontSize = 12,
+                    fontWeight = "medium",
+                    color = "on_surface_variant",
+                }),
+            })
+        end
     end
 
-    local ksTarget = kickstartTarget(item)
-    local justKickstarted = ksTarget ~= nil and kickstartedAt[ksTarget] ~= nil
-        and (os.time() - kickstartedAt[ksTarget]) < 18000
-    local isWeeklyExhausted = (item and item.weeklyMetric ~= nil and (tonumber(item.weeklyMetric.percent) or 0) >= 100)
-    local canKickstart = not isWeekly and ksTarget ~= nil and not justKickstarted
-        and not isSessionStarted(metric) and percent == 0
-        and not isWeeklyExhausted
-        and not unavailable(item and item.entry)
-    if canKickstart then
-        local isBusy = kickstarting[ksTarget] == true
-        bottomRowElements[#bottomRowElements + 1] = ui.button({
-            glyph = isBusy and "loader-2" or "bolt",
-            text = isBusy and "Starting..." or "Start 5h",
-            variant = "outline",
-            controlSize = "sm",
-            enabled = not isBusy,
-            tooltip = "Send 1-token prompt to trigger 5h rolling window now",
-            onClick = function()
-                kickstartWindow(ksTarget)
-            end,
-        })
-    end
-
-    if #bottomRowElements > 0 then
-        body[#body + 1] = ui.row({ gap = 8, align = "center", justify = "center" }, bottomRowElements)
-    end
+    body[#body + 1] = ui.row({ gap = 8, align = "center", justify = "center" }, bottomRowElements)
 
     if showValue then
         body[#body + 1] = ui.row({ align = "center", justify = "center" }, {
@@ -1774,14 +1880,6 @@ local function renderColumns(candidates)
         })
     end
 
-    local notices = {}
-    for _, candidate in ipairs(candidates) do
-        local status = statusIndicator(candidate)
-        if status ~= nil then
-            notices[#notices + 1] = status
-        end
-    end
-
     local topRowChildren = {
         ui.row({
             width = 32, height = 32, radius = 8,
@@ -1795,11 +1893,6 @@ local function renderColumns(candidates)
         topRowChildren[#topRowChildren + 1] = updatedRow
     end
     topRowChildren[#topRowChildren + 1] = ui.spacer({ flexGrow = 1 })
-    if #notices > 0 then
-        for _, n in ipairs(notices) do
-            topRowChildren[#topRowChildren + 1] = n
-        end
-    end
     topRowChildren[#topRowChildren + 1] = ui.row({ gap = 4, align = "center" }, headerActions)
 
     local modelItems = collectModelItems(candidates)

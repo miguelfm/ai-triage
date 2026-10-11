@@ -210,6 +210,8 @@ local panelTree2 = loadPanelWithReport(testReport)
 local startButtons2 = buttonsWithText(panelTree2, "Start 5h")
 assert(#startButtons2 == 2,
     "When both Codex and Claude 5h windows are unstarted at start of day, both should show 'Start 5h'. Got: " .. #startButtons2)
+assert(hasLabel(panelTree2, "--:--"),
+    "Unstarted sessions must display '--:--' clock placeholder to maintain card alignment")
 
 -- Test scenario 3: Claude is started via kickstart (future reset_at, 4h 45m left, 0% quota used)
 testReport.entries[2].metrics[1].reset_at = claudeSlotIso
@@ -218,6 +220,8 @@ local panelTree3 = loadPanelWithReport(testReport)
 local startButtons3 = buttonsWithText(panelTree3, "Start 5h")
 assert(#startButtons3 == 1,
     "When Claude is actively started, only unstarted Codex should show Start 5h. Got: " .. #startButtons3)
+assert(hasLabel(panelTree3, "--:--"),
+    "Unstarted Codex must display '--:--' while active Claude displays its clock")
 
 -- Test scenario 4: Both are active (Codex also started via kickstart with full window)
 testReport.entries[1].metrics[1].reset_at = fullWindowIso
@@ -226,6 +230,10 @@ local panelTree4 = loadPanelWithReport(testReport)
 local startButtons4 = buttonsWithText(panelTree4, "Start 5h")
 assert(#startButtons4 == 0,
     "When both are active, 0 'Start 5h' buttons should appear. Got: " .. #startButtons4)
+assert(not hasLabel(panelTree4, "--:--"),
+    "When both are active, no '--:--' placeholder should appear")
+assert(hasLabel(panelTree4, "5h rolling"),
+    "Active sessions should display '5h rolling' pill for alignment with 7d gearing")
 
 -- Test scenario 5: Provider without kickstart target (e.g. openrouter) at 0%
 local nonKickstartReport = {
