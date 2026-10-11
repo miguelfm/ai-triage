@@ -481,13 +481,17 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
     local value = tostring(metric.value or ""):gsub(" of ", " / ")
     local showValue = value ~= "" and value ~= string.format("%d%%", percent)
 
+    local ksTarget = not isWeekly and kickstartTarget(item) or nil
+    local justKickstarted = ksTarget ~= nil and kickstartedAt[ksTarget] ~= nil
+        and (os.time() - kickstartedAt[ksTarget]) < 18000
+
     local resetTimeText = formatResetTime(metric, windowLabel)
-    local isStarted = isWeekly or isSessionStarted(metric)
+    local isStarted = isWeekly or isSessionStarted(metric) or justKickstarted
     local leftDuration = ""
     if isStarted then
         leftDuration = countdown(metric)
         if (leftDuration == "now" or leftDuration == noctalia.tr("ui.now"))
-            and not isWeekly and not isSessionStarted(metric) then
+            and not isWeekly and not isSessionStarted(metric) and not justKickstarted then
             leftDuration = ""
         end
     end
@@ -696,9 +700,6 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
         end
     else
         -- 5h Session card complementary action / status
-        local ksTarget = kickstartTarget(item)
-        local justKickstarted = ksTarget ~= nil and kickstartedAt[ksTarget] ~= nil
-            and (os.time() - kickstartedAt[ksTarget]) < 18000
         local isWeeklyExhausted = (item and item.weeklyMetric ~= nil and (tonumber(item.weeklyMetric.percent) or 0) >= 100)
         local canKickstart = ksTarget ~= nil and not justKickstarted
             and not isStarted and percent == 0

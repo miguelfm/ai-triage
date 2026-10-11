@@ -313,11 +313,14 @@ function M.isSessionStarted(metric)
         elapsed = math.floor((elapsedSecs / window) * 100)
     end
 
-    -- An active session has consumed quota (>0%), has elapsed time (>0% elapsed),
-    -- or has an active future countdown ticking down within the rolling window (e.g. <= window + 60s).
-    -- Only sessions without any future reset schedule or expired sessions are unstarted.
-    local elapsed = M.elapsedPercent(metric.detail)
-    if (elapsed and elapsed > 0) or (remaining > 0 and remaining < (window + 60)) then
+    -- At 0% quota usage, rolling providers (Codex, Antigravity) report a synthetic
+    -- future reset timestamp floating around the full window (e.g. 4h 59m, 4h 58m,
+    -- with 0% elapsed). These are unstarted sessions awaiting their first prompt.
+    -- A 5h session is only considered started if:
+    -- 1) Quota has been consumed (pct > 0, handled above),
+    -- 2) Time has elapsed significantly (>= 10% elapsed, e.g. > 30m into a 5h window),
+    -- 3) Or less than 90% of the window remains (< 4h 30m of 5h: remaining < window * 0.90).
+    if (elapsed and elapsed >= 10) or (remaining > 0 and remaining < (window * 0.90)) then
         return true
     end
 

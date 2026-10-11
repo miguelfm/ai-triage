@@ -61,14 +61,14 @@ assert(shared.isSessionStarted({ percent = 0, detail = "Resets in 2h 17m · 54% 
 assert(shared.isSessionStarted({ percent = 0, reset_at = activeCountdownIso, detail = "Resets in 1h 48m · 63% elapsed · 63pts under" }) == true,
     "Codex active session with 1h 48m left must mean session is started")
 
-assert(shared.isSessionStarted({ percent = 0, reset_at = fullWindowIso, detail = "Resets in 4h 59m · 0% elapsed · on track" }) == true,
-    "Codex fresh session (4h 59m left, 0% elapsed) is actively running")
+assert(shared.isSessionStarted({ percent = 0, reset_at = fullWindowIso, detail = "Resets in 4h 59m · 0% elapsed · on track" }) == false,
+    "Codex fresh session (4h 59m left, 0% elapsed) must mean session is not started")
 
-assert(shared.isSessionStarted({ percent = 0, reset_at = claudeSlotIso, detail = "Resets in 4h 45m · 4% elapsed · 4pts under" }) == true,
-    "Claude fresh session (4h 45m left, 4% elapsed) is actively running")
+assert(shared.isSessionStarted({ percent = 0, reset_at = claudeSlotIso, detail = "Resets in 4h 45m · 4% elapsed · 4pts under" }) == false,
+    "Claude fresh session (4h 45m left, 4% elapsed) must mean session is not started")
 
-assert(shared.isSessionStarted({ percent = 0, reset_at = fullWindowIso, detail = "Resets in 4h 59m" }) == true,
-    "Antigravity Claude & GPT OSS fresh session (4h 59m left) is actively running")
+assert(shared.isSessionStarted({ percent = 0, reset_at = fullWindowIso, detail = "Resets in 4h 59m" }) == false,
+    "Antigravity Claude & GPT OSS fresh session (4h 59m left) must mean session is not started")
 
 assert(shared.isSessionStarted(nil) == false,
     "nil metric must return false")
@@ -197,13 +197,13 @@ assert(not hasLabel(panelTree, "session not started"),
     "Codex must not be labeled as session not started")
 
 -- Test scenario 2: Both Codex and Claude are unstarted at start of day
--- (Both have no scheduled future reset: reset_at is nil/expired and detail is empty)
-testReport.entries[1].metrics[1].reset_at = nil
-testReport.entries[1].metrics[1].detail = ""
+-- (Codex reports synthetic 4h 59m · 0% elapsed; Claude reports slot 4h 45m · 4% elapsed, both 0% used)
+testReport.entries[1].metrics[1].reset_at = fullWindowIso
+testReport.entries[1].metrics[1].detail = "Resets in 4h 59m · 0% elapsed · on track"
 testReport.entries[1].metrics[1].percent = 0
 testReport.entries[1].metrics[1].value = "0%"
-testReport.entries[2].metrics[1].reset_at = nil
-testReport.entries[2].metrics[1].detail = ""
+testReport.entries[2].metrics[1].reset_at = claudeSlotIso
+testReport.entries[2].metrics[1].detail = "Resets in 4h 45m · 4% elapsed · 4pts under"
 testReport.entries[2].metrics[1].percent = 0
 testReport.entries[2].metrics[1].value = "0%"
 local panelTree2 = loadPanelWithReport(testReport)
@@ -213,7 +213,9 @@ assert(#startButtons2 == 2,
 assert(hasLabel(panelTree2, "--:--"),
     "Unstarted sessions must display '--:--' clock placeholder to maintain card alignment")
 
--- Test scenario 3: Claude is started via kickstart (future reset_at, 4h 45m left, 0% quota used)
+-- Test scenario 3: Claude is actively consumed (>0%) while Codex remains unstarted
+testReport.entries[2].metrics[1].percent = 15
+testReport.entries[2].metrics[1].value = "15%"
 testReport.entries[2].metrics[1].reset_at = claudeSlotIso
 testReport.entries[2].metrics[1].detail = "Resets in 4h 45m · 4% elapsed · 4pts under"
 local panelTree3 = loadPanelWithReport(testReport)
@@ -223,9 +225,9 @@ assert(#startButtons3 == 1,
 assert(hasLabel(panelTree3, "--:--"),
     "Unstarted Codex must display '--:--' while active Claude displays its clock")
 
--- Test scenario 4: Both are active (Codex also started via kickstart with full window)
-testReport.entries[1].metrics[1].reset_at = fullWindowIso
-testReport.entries[1].metrics[1].detail = "Resets in 4h 59m · 0% elapsed · on track"
+-- Test scenario 4: Both are active (Codex also consumed quota)
+testReport.entries[1].metrics[1].percent = 5
+testReport.entries[1].metrics[1].value = "5%"
 local panelTree4 = loadPanelWithReport(testReport)
 local startButtons4 = buttonsWithText(panelTree4, "Start 5h")
 assert(#startButtons4 == 0,
