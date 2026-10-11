@@ -1180,9 +1180,12 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         -- Time-arbitrage and perishability bonus for imminent weekly reset (<= 24 active hours):
         -- Reflects that quotas expire permanently if not consumed.
         -- When active hours <= 24h, remaining 5h sessions are scarce (e.g. <= 2 sessions left).
-        if H_w <= 24.0 and wFree >= 5.0 then
-            local ratio = math.min(6.0, (24.0 / math.max(1.0, H_w))^1.25)
-            uResetWeekly = 50.0 + (wFree * 4.0 * ratio)
+        if H_w <= 24.0 and wFree > 0.5 then
+            local ratio = math.min(8.0, (24.0 / math.max(0.5, H_w))^1.25)
+            -- Final sprint bonus: when weekly reset is within 3 active hours,
+            -- unspent quota risks immediate total loss, prioritizing it above all distant models.
+            local sprintBonus = H_w <= 3.0 and (220.0 * (3.0 - H_w) / 3.0) or 0.0
+            uResetWeekly = 50.0 + sprintBonus + (wFree * 4.0 * ratio)
         end
 
         -- Bottleneck urgency bonus for high-gearing models (K >= 8):

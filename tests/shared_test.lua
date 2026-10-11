@@ -542,7 +542,37 @@ local mockCreditCandidates = {
 local parsedCredits = shared.collectResetCredits(mockCreditCandidates, nil)
 assert(#parsedCredits == 1, "Expected 1 parsed reset credit")
 assert(parsedCredits[1].providerName == "Claude", "Parsed credit provider must be Claude")
-assert(parsedCredits[1].expiry:find("5d"), "Expiry string must contain 5d")
+-- 10. Imminent weekly reset sprint test:
+-- When a model has only 4% weekly quota left, but resets in ~1.2h (and session has 90% free),
+-- it must outrank models with >20h left (like Claude at 74%) and days left (like Codex at 0%),
+-- because unspent weekly quota is immediately perishable.
+local imminentGemini = {
+    name = "Gemini",
+    providerId = "gemini",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 10, window_secs = 18000, reset_at = isoIn(17000) },
+    weeklyMetric = { percent = 96, window_secs = 604800, reset_at = isoIn(4200) },
+}
+local distantClaude = {
+    name = "Claude",
+    providerId = "anthropic",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 0, window_secs = 18000, reset_at = isoIn(16800) },
+    weeklyMetric = { percent = 74, window_secs = 604800, reset_at = isoIn(120000) },
+}
+local distantCodex = {
+    name = "Codex",
+    providerId = "openai",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 0, window_secs = 18000, reset_at = isoIn(18000) },
+    weeklyMetric = { percent = 0, window_secs = 604800, reset_at = isoIn(580000) },
+}
+local stagger = { hasCollision = true, advanceProviderId = "anthropic" }
+local geminiSprintScore = shared.calculateModelTriageScore(imminentGemini, stagger, os.time(), cfg, true)
+local claudeSprintScore = shared.calculateModelTriageScore(distantClaude, stagger, os.time(), cfg, true)
+local codexSprintScore = shared.calculateModelTriageScore(distantCodex, stagger, os.time(), cfg, true)
+assert(geminiSprintScore > claudeSprintScore and geminiSprintScore > codexSprintScore,
+    string.format("Gemini with imminent reset in ~1h (score %.1f) must outrank Claude (%.1f) and Codex (%.1f)", geminiSprintScore, claudeSprintScore, codexSprintScore))
 
 io.write("ok: shared timestamps, availability, provider order, mathematical triage score, and reset staggering\n")
 

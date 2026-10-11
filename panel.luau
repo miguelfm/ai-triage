@@ -311,7 +311,10 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
         local C_max = (H_w_active * 20.0) / gearing
         local dutyCycle = remainingQuota / math.max(1.0, C_max)
 
-        if (H_w_active <= 14.0 or remainingSecs <= 86400) and remainingQuota >= 10 and remainingSecs > 0 then
+        if (H_w_active <= 3.0 or remainingSecs <= 10800) and remainingQuota > 0 and remainingSecs > 0 then
+            shouldBurn = true
+            burnSummary = string.format("Weekly reset in ~%.1fh! Burn remaining %d%% before reset", math.max(0.1, remainingSecs / 3600), remainingQuota)
+        elseif (H_w_active <= 14.0 or remainingSecs <= 86400) and remainingQuota >= 5 and remainingSecs > 0 then
             shouldBurn = true
             burnSummary = string.format("Weekly reset soon (~%.1fh active left) · %d%% quota will expire", H_w_active, remainingQuota)
         elseif dutyCycle >= 0.85 and remainingQuota >= 20 and remainingSecs > 0 then
