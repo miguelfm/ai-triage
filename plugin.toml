@@ -96,7 +96,7 @@ key = "gearing_anthropic"
 type = "string"
 label_key = "settings.gearing_anthropic.label"
 description_key = "settings.gearing_anthropic.description"
-default = "14.0"
+default = "7.0"
 
 [[setting]]
 key = "gearing_openai"

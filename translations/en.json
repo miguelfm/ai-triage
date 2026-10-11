@@ -67,7 +67,7 @@
       "label": "Gearing ratio: Gemini (sessions/wk)"
     },
     "gearing_anthropic": {
-      "description": "Number of full 5h sessions that equal 100% weekly quota for Claude Pro (default 14.0, where 1 session burns ~7.1% of the week).",
+      "description": "Number of full 5h sessions that equal 100% weekly quota for Claude Pro (default 7.0, where 1 session burns ~14.3% of the week).",
       "label": "Gearing ratio: Claude Pro (sessions/wk)"
     },
     "gearing_openai": {

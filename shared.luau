@@ -828,6 +828,9 @@ function M.collectModelItems(candidates)
             }
         end
     end
+    for _, item in ipairs(items) do
+        M.recordTelemetrySample(item)
+    end
     return items
 end
 
@@ -1046,47 +1049,140 @@ end
 -- Model Quota Gearing Ratios (K_m = L_weekly / L_session):
 -- Defines how many full 100% 5h sessions equal 100% weekly quota.
 -- Low K (<= 3.5, e.g. Claude & GPT OSS ~2.5): weekly quota is the bottleneck; 1 session burns ~40% of the week.
--- High K (>= 12.0, e.g. Codex ~16.0, Claude Pro ~14.0): 5h session windows are the bottleneck; 1 session burns only 6-7%.
+-- Moderate K (~7.0, e.g. Claude Pro ~7.0): 1 session burns ~14.3% of the week (~1 session per day).
+-- High K (>= 12.0, e.g. Codex ~16.0): 5h session windows are the bottleneck; 1 session burns only ~6.25%.
 M.DEFAULT_GEARING = {
     ["claude-oss"] = 2.5,
     ["gemini"] = 8.0,
-    ["anthropic"] = 14.0,
+    ["anthropic"] = 7.0,
     ["openai"] = 16.0,
     ["default"] = 10.0,
 }
 
-function M.getModelGearing(providerId, modelName)
+-- In-memory empirical telemetry store for tracking session delta vs weekly delta (K_obs = Delta S / Delta W)
+M.telemetryBaselines = {}
+
+function M.modelTelemetryKey(providerId, modelName)
+    local pid = tostring(providerId or ""):lower()
+    local mname = tostring(modelName or ""):lower()
+    if pid:find("oss") or mname:find("oss") then
+        return "claude-oss"
+    elseif pid:find("gemini") or mname:find("gemini") then
+        return "gemini"
+    elseif pid:find("anthropic") or (mname:find("claude") and not mname:find("oss")) then
+        return "anthropic"
+    elseif pid:find("openai") or mname:find("codex") or mname:find("gpt") then
+        return "openai"
+    end
+    return pid ~= "" and pid or "default"
+end
+
+-- Record a telemetry sample from an item with both 5h session and 7d weekly metrics.
+-- When quota is consumed during an active session, computes empirical gearing:
+-- K_obs = Delta Session % / Delta Weekly %
+function M.recordTelemetrySample(item)
+    if type(item) ~= "table" then return end
+    local sMetric = item.sessionMetric
+    local wMetric = item.weeklyMetric
+    if type(sMetric) ~= "table" or type(wMetric) ~= "table" then return end
+
+    local sPct = tonumber(sMetric.percent)
+    local wPct = tonumber(wMetric.percent)
+    if sPct == nil or wPct == nil then return end
+
+    local key = M.modelTelemetryKey(item.providerId or (item.entry and item.entry.id), item.name)
+    local sReset = tostring(sMetric.reset_at or "")
+    local wReset = tostring(wMetric.reset_at or "")
+
+    local telemetry = M.telemetryBaselines
+    if type(noctalia) == "table" and type(noctalia.state) == "table" and type(noctalia.state.get) == "function" then
+        local st = noctalia.state.get("gearing_telemetry")
+        if type(st) == "table" then telemetry = st end
+    end
+
+    local rec = telemetry[key]
+    if rec == nil then
+        rec = {
+            s_base = sPct,
+            w_base = wPct,
+            s_reset = sReset,
+            w_reset = wReset,
+            k_calibrated = nil,
+            obs_samples = 0,
+        }
+        telemetry[key] = rec
+    else
+        -- Detect session or weekly cycle reset
+        local resetChanged = (sReset ~= "" and rec.s_reset ~= "" and sReset ~= rec.s_reset)
+        local sessionDropped = (rec.s_base > 25 and sPct <= 5)
+        local weekReset = (wReset ~= "" and rec.w_reset ~= "" and wReset ~= rec.w_reset)
+
+        if resetChanged or sessionDropped or weekReset then
+            rec.s_base = sPct
+            rec.w_base = wPct
+            rec.s_reset = sReset
+            rec.w_reset = wReset
+        else
+            if sPct < rec.s_base then
+                rec.s_base = sPct
+                rec.w_base = wPct
+            else
+                local dS = sPct - rec.s_base
+                local dW = wPct - rec.w_base
+                -- When session usage delta is significant (>= 15%) and weekly delta >= 1%:
+                if dS >= 15.0 and dW >= 1.0 then
+                    local k_sample = dS / dW
+                    if k_sample >= 1.5 and k_sample <= 30.0 then
+                        rec.obs_samples = (rec.obs_samples or 0) + 1
+                        if rec.k_calibrated == nil then
+                            rec.k_calibrated = math.floor(k_sample * 10 + 0.5) / 10
+                        else
+                            local blended = 0.35 * k_sample + 0.65 * rec.k_calibrated
+                            rec.k_calibrated = math.floor(blended * 10 + 0.5) / 10
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    M.telemetryBaselines = telemetry
+    if type(noctalia) == "table" and type(noctalia.state) == "table" and type(noctalia.state.set) == "function" then
+        noctalia.state.set("gearing_telemetry", telemetry)
+    end
+end
+
+function M.getModelGearing(providerId, modelName, item)
     local rawId = tostring(providerId or ""):lower()
     local rawName = tostring(modelName or ""):lower()
+    local key = M.modelTelemetryKey(providerId, modelName)
 
+    -- 1. Check user manual override in configuration
     if type(noctalia) == "table" and type(noctalia.getConfig) == "function" then
-        if rawId:find("oss") or rawName:find("oss") then
-            local v = tonumber(noctalia.getConfig("gearing_claude_oss"))
-            if v and v > 0 then return v end
-        elseif rawId:find("gemini") or rawName:find("gemini") then
-            local v = tonumber(noctalia.getConfig("gearing_gemini"))
-            if v and v > 0 then return v end
-        elseif rawId:find("anthropic") or (rawName:find("claude") and not rawName:find("oss")) then
-            local v = tonumber(noctalia.getConfig("gearing_anthropic"))
-            if v and v > 0 then return v end
-        elseif rawId:find("openai") or rawName:find("codex") or rawName:find("gpt") then
-            local v = tonumber(noctalia.getConfig("gearing_openai"))
-            if v and v > 0 then return v end
+        local configKey = "gearing_" .. (key:gsub("%-", "_"))
+        local v = tonumber(noctalia.getConfig(configKey))
+        if v and v > 0 then
+            local defVal = M.DEFAULT_GEARING[key] or 10.0
+            if math.abs(v - defVal) > 0.05 then
+                return v, false
+            end
         end
-        local def = tonumber(noctalia.getConfig("gearing_default"))
-        if def and def > 0 then return def end
     end
 
-    if rawId:find("oss") or rawName:find("oss") then
-        return 2.5
-    elseif rawId:find("gemini") or rawName:find("gemini") then
-        return 8.0
-    elseif rawId:find("anthropic") or (rawName:find("claude") and not rawName:find("oss")) then
-        return 14.0
-    elseif rawId:find("openai") or rawName:find("codex") or rawName:find("gpt") then
-        return 16.0
+    -- 2. Check dynamic empirical telemetry calibration
+    local telemetry = M.telemetryBaselines
+    if type(noctalia) == "table" and type(noctalia.state) == "table" and type(noctalia.state.get) == "function" then
+        local st = noctalia.state.get("gearing_telemetry")
+        if type(st) == "table" then telemetry = st end
     end
-    return 10.0
+    local rec = telemetry and telemetry[key]
+    if rec and rec.k_calibrated and rec.k_calibrated > 0 then
+        return rec.k_calibrated, true
+    end
+
+    -- 3. Default empirical baseline
+    local def = M.DEFAULT_GEARING[key] or M.DEFAULT_GEARING["default"]
+    return def, false
 end
 
 -- Mathematical triage model for dynamic multi-provider resource optimization:

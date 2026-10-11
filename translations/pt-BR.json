@@ -63,7 +63,7 @@
       "label": "Razão de escalonamento: Gemini (sessões/sem)"
     },
     "gearing_anthropic": {
-      "description": "Número de sessões cheias de 5h equivalentes a 100% da cota semanal para Claude Pro (padrão 14.0, onde 1 sessão consome ~7.1% da semana).",
+      "description": "Número de sessões cheias de 5h equivalentes a 100% da cota semanal para Claude Pro (padrão 7.0, onde 1 sessão consome ~14.3% da semana).",
       "label": "Razão de escalonamento: Claude Pro (sessões/sem)"
     },
     "gearing_openai": {

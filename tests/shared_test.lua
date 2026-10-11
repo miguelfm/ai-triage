@@ -450,9 +450,24 @@ assert(geminiScore > codexScore,
 -- 8. Model Quota Gearing Ratios (K_m = L_weekly / L_session)
 assert(shared.getModelGearing("claude-oss", "Claude & GPT OSS") == 2.5, "claude-oss gearing must be 2.5")
 assert(shared.getModelGearing("gemini", "Gemini") == 8.0, "gemini gearing must be 8.0")
-assert(shared.getModelGearing("anthropic", "Claude") == 14.0, "anthropic gearing must be 14.0")
+assert(shared.getModelGearing("anthropic", "Claude") == 7.0, "anthropic gearing must be 7.0")
 assert(shared.getModelGearing("openai", "Codex") == 16.0, "codex gearing must be 16.0")
 assert(shared.getModelGearing("custom_provider", "Custom Model") == 10.0, "default gearing must be 10.0")
+
+-- Empirical telemetry calibration test (delta S = 70%, delta W = 10% -> K_obs = 7.0):
+local testClaudeItem = {
+    providerId = "anthropic",
+    name = "Claude",
+    sessionMetric = { percent = 0, reset_at = "2026-10-12T05:00:00Z" },
+    weeklyMetric = { percent = 73, reset_at = "2026-10-18T00:00:00Z" },
+}
+shared.recordTelemetrySample(testClaudeItem)
+testClaudeItem.sessionMetric.percent = 70
+testClaudeItem.weeklyMetric.percent = 83
+shared.recordTelemetrySample(testClaudeItem)
+local calibratedK, isCal = shared.getModelGearing("anthropic", "Claude", testClaudeItem)
+assert(isCal == true, "gearing should be marked as empirically calibrated")
+assert(calibratedK == 7.0, "calibrated gearing for 70% session / 10% weekly must be 7.0")
 
 -- Midweek comparison:
 -- Codex (K=16.0, 1 session burns only 6.25% of the week; needs 9.6 sessions to finish remaining 60% weekly quota)

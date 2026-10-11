@@ -56,14 +56,21 @@ For model triage, we calculate:
 The structural coupling ratio between weekly quota and session window capacity is defined by:
 $$K_m = \frac{L_{\text{weekly}}}{L_{\text{session}}}$$
 
-Empirically calibrated values across supported providers:
+Empirically calibrated baseline values across supported providers:
 | Provider Tier | Benchmark Model | Gearing Ratio $K_m$ | Single 5h Session Weekly Burn ($R_m$) | Full Sessions per Week |
 | :--- | :--- | :---: | :---: | :---: |
 | `claude-oss` | Claude 3.7 Sonnet & GPT-OSS | **2.5** | $40.0\%$ | $2.5$ sessions |
 | `gemini` | Gemini 2.5 Pro / Flash | **8.0** | $12.5\%$ | $8.0$ sessions |
-| `anthropic` | Claude 3.7 Sonnet (Direct) | **14.0** | $7.1\%$ | $14.0$ sessions |
+| `anthropic` | Claude Pro (Direct Anthropic) | **7.0** | $14.3\%$ | $7.0$ sessions |
 | `openai` | OpenAI Codex / GPT-4o | **16.0** | $6.25\%$ | $16.0$ sessions |
 | *Default* | Custom / Unknown Provider | **10.0** | $10.0\%$ | $10.0$ sessions |
+
+##### Dynamic Telemetry-Based Gearing Calibration:
+In addition to baseline defaults, `ai-triage` continuously observes real consumption deltas during active sessions:
+$$K_{\text{obs}} = \frac{\Delta S}{\Delta W} = \frac{S(t) - S(t_0)}{W(t) - W(t_0)}$$
+When a session advances by $\Delta S \ge 15\%$ and weekly quota registers $\Delta W \ge 1\%$, the model updates its calibrated ratio using an exponential moving average (EMA with $\alpha = 0.35$):
+$$K_{\text{calibrated}} \leftarrow \alpha K_{\text{obs}} + (1 - \alpha) K_{\text{prior}}$$
+This allows the plugin to automatically self-tune to the user's actual prompt size, reasoning effort, and model mix (e.g. Claude 3.7 Sonnet vs Opus vs Haiku).
 
 ##### Capacity Stress & Session Duty Cycle:
 In $H_w^*$ remaining active hours, assuming an average session consumes over $5\text{h}$:

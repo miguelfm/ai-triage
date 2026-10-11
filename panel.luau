@@ -678,23 +678,25 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
 
     -- Element 2: Complementary status or action element (Always rendered)
     if isWeekly then
-        local gearing = getModelGearing(item and (item.providerId or (item.entry and item.entry.id)), item and item.name)
+        local gearing, isCalibrated = getModelGearing(item and (item.providerId or (item.entry and item.entry.id)), item and item.name, item)
         if gearing then
             local oneSessionPct = math.floor((100.0 / gearing) + 0.5)
+            local tipText = string.format("Gearing: ~%.1f 5h sessions per week (1 session burns ~%d%% weekly quota%s)",
+                gearing, oneSessionPct, isCalibrated and " · calibrated from observed usage" or "")
             bottomRowElements[#bottomRowElements + 1] = ui.row({
                 gap = 4, align = "center", justify = "center",
                 paddingH = 7,
                 paddingV = 2,
                 radius = 5,
-                fill = "secondary/0.10",
-                tooltip = string.format("Gearing: ~%.1f 5h sessions per week (1 session burns ~%d%% weekly quota)", gearing, oneSessionPct),
+                fill = isCalibrated and "primary/0.14" or "secondary/0.10",
+                tooltip = tipText,
             }, {
-                ui.glyph({ name = "gauge", size = 12, color = "secondary" }),
+                ui.glyph({ name = isCalibrated and "sparkles" or "gauge", size = 12, color = isCalibrated and "primary" or "secondary" }),
                 ui.label({
                     text = string.format("~%.1fs/w", gearing),
                     fontSize = 12,
                     fontWeight = "medium",
-                    color = "secondary",
+                    color = isCalibrated and "primary" or "secondary",
                 }),
             })
         end
