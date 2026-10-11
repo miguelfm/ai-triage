@@ -159,6 +159,7 @@
     "last_reading": "Last reading, {minutes} min ago",
     "last_reading_now": "Last reading, moments ago",
     "loading": "Loading…",
+    "no_providers": "No providers configured or reachable",
     "no_usage": "No usage reported",
     "not_configured": "`{vendor}` is not configured in ai-usagebar",
     "now": "now",

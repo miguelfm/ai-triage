@@ -5,6 +5,18 @@
 
 local M = {}
 
+M.WINDOW_5H = 18000
+M.WINDOW_7D = 604800
+M.WEEKLY_HOURS = 168.0
+M.NOMINAL_WEEKLY_PACE_RATIO = 1.68
+
+local function trim(s)
+    if noctalia and noctalia.string and type(noctalia.string.trim) == "function" then
+        return noctalia.string.trim(s)
+    end
+    return tostring(s or ""):match("^%s*(.-)%s*$") or ""
+end
+
 -- Tabler has no Anthropic mark, so providers without a brand glyph use a
 -- semantic one. The glyph is identity: it carries no colour of its own, so every
 -- colour left in the panel means something.
@@ -613,8 +625,9 @@ function M.analyzeResetCredits(entries, nowTime)
 
         if #list == 0 then
             for _, section in ipairs(sections) do
-                if section.type == "block" and tostring(section.label or ""):lower():find("reset credit") then
-                    for _, line in ipairs(section.body or {}) do
+                if type(section) == "table" and section.type == "block" and tostring(section.label or ""):lower():find("reset credit") then
+                    local lines = type(section.body) == "table" and section.body or {}
+                    for _, line in ipairs(lines) do
                         local text = noctalia.string.trim(tostring(line or ""))
                         local days = tonumber(text:match("(%d+)d")) or 0
                         local hours = tonumber(text:match("(%d+)h")) or 0
@@ -711,6 +724,190 @@ function M.analyzeResetCredits(entries, nowTime)
 
     return staggerPlan, providerStats
 end
+
+-- Check whether a candidate provider is configured (excludes unconfigured "no api key" errors)
+function M.isConfigured(entry)
+    if type(entry) ~= "table" then return false end
+    if entry.status ~= "error" then return true end
+    local message = tostring(entry.error or ""):lower()
+    return not (message:find("^credentials error:") and message:find("no api key", 1, true))
+end
+
+-- Map a provider/model entry to its CLI kickstart target name ("claude", "codex", "gemini", "claude-oss")
+function M.kickstartTarget(itemOrId, optionalName)
+    if itemOrId == nil then return nil end
+    local id = ""
+    local name = ""
+    if type(itemOrId) == "table" then
+        id = tostring(itemOrId.providerId or itemOrId.id or "")
+        name = tostring(itemOrId.name or itemOrId.displayName or ""):lower()
+    else
+        id = tostring(itemOrId)
+        name = tostring(optionalName or ""):lower()
+    end
+    if id == "anthropic" or name:find("^claude$") then
+        return "claude"
+    elseif id == "openai" or name:find("^codex") then
+        return "codex"
+    elseif id == "gemini" or name:find("gemini") then
+        return "gemini"
+    elseif id == "claude-oss" or id == "claude_oss" or name:find("oss") then
+        return "claude-oss"
+    elseif id == "antigravity" then
+        if name:find("gemini") then
+            return "gemini"
+        elseif name:find("claude") or name:find("oss") then
+            return "claude-oss"
+        end
+    end
+    return nil
+end
+
+-- Normalize candidate provider entries and unpack multi-model providers (Antigravity) into distinct model items
+function M.collectModelItems(candidates)
+    local items = {}
+    if type(candidates) ~= "table" then return items end
+    for _, entry in ipairs(candidates) do
+        local id = entry.id
+        local baseId = M.baseProvider(id)
+        local displayName = tostring(entry.display_name or entry.name or entry.id or "")
+        local plan = tostring(entry.plan or "")
+
+        if baseId == "antigravity" then
+            local models = M.modelHeadlines(entry)
+            if #models > 0 then
+                for _, model in ipairs(models) do
+                    local sMetric, wMetric = M.dualMetrics(model.metrics)
+                    local subId = (model.displayName == "Gemini" or tostring(model.name or ""):lower():find("gemini"))
+                        and "gemini"
+                        or "claude-oss"
+                    items[#items + 1] = {
+                        providerId = subId,
+                        providerName = model.displayName,
+                        plan = plan,
+                        providerGlyph = model.glyph,
+                        name = model.displayName,
+                        glyph = model.glyph,
+                        badge = nil,
+                        sessionMetric = sMetric,
+                        weeklyMetric = wMetric,
+                        entry = entry,
+                    }
+                end
+            else
+                local sMetric, wMetric = M.dualMetrics(entry.metrics)
+                items[#items + 1] = {
+                    providerId = id,
+                    providerName = displayName,
+                    plan = plan,
+                    providerGlyph = M.providerGlyph(id),
+                    name = displayName,
+                    glyph = M.providerGlyph(id),
+                    badge = nil,
+                    sessionMetric = sMetric,
+                    weeklyMetric = wMetric,
+                    entry = entry,
+                }
+            end
+        else
+            local sMetric, wMetric = M.dualMetrics(entry.metrics)
+            items[#items + 1] = {
+                providerId = id,
+                providerName = displayName,
+                plan = plan,
+                providerGlyph = M.providerGlyph(id),
+                name = displayName,
+                glyph = M.providerGlyph(id),
+                badge = nil,
+                sessionMetric = sMetric,
+                weeklyMetric = wMetric,
+                entry = entry,
+            }
+        end
+    end
+    return items
+end
+
+-- Collect, parse, and sort pending reset credits from provider sections and stagger plans
+function M.collectResetCredits(candidates, staggerPlan)
+    local credits = {}
+    if type(candidates) ~= "table" then return credits end
+    for _, entry in ipairs(candidates) do
+        local providerName = tostring(entry.display_name or entry.name or entry.id or "")
+        local providerId = entry.id
+        local baseId = M.baseProvider(providerId)
+        local sections = type(entry.sections) == "table" and entry.sections or {}
+        local rawCredits = type(entry.reset_credits) == "table" and entry.reset_credits.credits or nil
+
+        for _, section in ipairs(sections) do
+            if type(section) == "table" and section.type == "block" and tostring(section.label or ""):lower():find("reset credit") then
+                local lines = type(section.body) == "table" and section.body or {}
+                for lineIndex, line in ipairs(lines) do
+                    local text = trim(tostring(line))
+                    local kind, expiry = text:match("^(.-)%s+·%s+(.+)$")
+                    local expiryText = ""
+                    if expiry then
+                        expiryText = expiry:gsub("^[Ee]xpires%s*", "")
+                    elseif text:find("[Ee]xpires") then
+                        expiryText = text:gsub("^[Ee]xpires%s*", "")
+                    else
+                        expiryText = text
+                    end
+
+                    local expireTimestamp = nil
+                    if rawCredits and rawCredits[lineIndex] and rawCredits[lineIndex].expires_at then
+                        expireTimestamp = M.parseIso(rawCredits[lineIndex].expires_at)
+                    end
+                    if expireTimestamp == nil and rawCredits then
+                        for _, rc in ipairs(rawCredits) do
+                            if kind and rc.title and rc.title == kind then
+                                expireTimestamp = M.parseIso(rc.expires_at)
+                                break
+                            end
+                        end
+                    end
+                    if expireTimestamp == nil then
+                        local days = tonumber(expiryText:match("(%d+)d")) or 0
+                        local hours = tonumber(expiryText:match("(%d+)h")) or 0
+                        expireTimestamp = os.time() + (days * 86400) + (hours * 3600)
+                    end
+
+                    local role = nil
+                    if staggerPlan and staggerPlan.hasCollision then
+                        if baseId == staggerPlan.advanceProviderId then
+                            role = "advance"
+                        elseif baseId == staggerPlan.deferProviderId then
+                            role = "defer"
+                        end
+                    end
+                    if staggerPlan and staggerPlan.optimalClaimProviders and staggerPlan.optimalClaimProviders[baseId] then
+                        role = "claim"
+                    end
+
+                    credits[#credits + 1] = {
+                        providerId = providerId,
+                        providerName = providerName,
+                        glyph = M.providerGlyph(providerId),
+                        expiry = expiryText,
+                        fullTitle = kind or text,
+                        expiresAt = expireTimestamp or math.huge,
+                        role = role,
+                    }
+                end
+            end
+        end
+    end
+
+    table.sort(credits, function(a, b)
+        if a.expiresAt ~= b.expiresAt then
+            return a.expiresAt < b.expiresAt
+        end
+        return (a.providerName or "") < (b.providerName or "")
+    end)
+
+    return credits
+end
+
 
 -- ── Schedule-aware Human Activity Model ──────────────────────────────────────
 -- Models realistic human interaction patterns (workdays vs weekends, sleep/rest,

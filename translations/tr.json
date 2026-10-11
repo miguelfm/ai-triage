@@ -52,6 +52,7 @@
     "hidden_label": "Gösterilmiyor",
     "hidden_value": "{count} tane daha, paneli açmak için tıklayın",
     "loading": "Yükleniyor…",
+    "no_providers": "Yapılandırılmış veya erişilebilir sağlayıcı yok",
     "no_usage": "Kullanım bildirilmedi",
     "not_configured": "`{vendor}` ai-usagebar içinde yapılandırılmamış",
     "now": "şimdi",

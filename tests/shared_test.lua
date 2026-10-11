@@ -479,4 +479,70 @@ local claudeOssMidweekScore = shared.calculateModelTriageScore(claudeOssMidweek,
 assert(codexMidweekScore > claudeOssMidweekScore * 2,
     string.format("Codex with high session gearing (%f) must heavily outrank Claude OSS with low gearing (%f) mid-week", codexMidweekScore, claudeOssMidweekScore))
 
+-- 9. Domain Helper & Transformation Unit Tests
+assert(shared.WINDOW_5H == 18000, "WINDOW_5H must be 18000s")
+assert(shared.WINDOW_7D == 604800, "WINDOW_7D must be 604800s")
+assert(shared.isConfigured({ status = "ready" }) == true, "ready provider is configured")
+assert(shared.isConfigured({ status = "error", error = "credentials error: no api key found" }) == false, "no api key error is not configured")
+assert(shared.isConfigured({ status = "error", error = "credentials error: invalid token" }) == true, "invalid token is configured but failing")
+
+assert(shared.kickstartTarget({ providerId = "anthropic", name = "Claude" }) == "claude", "anthropic target is claude")
+assert(shared.kickstartTarget({ providerId = "openai", name = "Codex" }) == "codex", "openai target is codex")
+assert(shared.kickstartTarget({ providerId = "gemini", name = "Gemini" }) == "gemini", "gemini target is gemini")
+assert(shared.kickstartTarget({ providerId = "claude-oss", name = "Claude & GPT OSS" }) == "claude-oss", "claude-oss target is claude-oss")
+assert(shared.kickstartTarget("openai", "codex") == "codex", "direct string pair target is codex")
+assert(shared.kickstartTarget({ providerId = "openrouter", name = "OpenRouter" }) == nil, "openrouter has no kickstart target")
+
+-- Test collectModelItems with Antigravity unpacking
+local mockCandidates = {
+    {
+        id = "openai",
+        display_name = "Codex",
+        status = "ready",
+        metrics = {
+            { label = "5h", percent = 10, window_secs = 18000 },
+            { label = "7d", percent = 25, window_secs = 604800 },
+        },
+    },
+    {
+        id = "antigravity",
+        display_name = "Antigravity",
+        status = "ready",
+        metrics = {
+            { label = "Gemini", percent = 20, window_secs = 18000 },
+            { label = "Gemini", percent = 40, window_secs = 604800 },
+            { label = "Claude & GPT OSS", percent = 0, window_secs = 18000 },
+            { label = "Claude & GPT OSS", percent = 30, window_secs = 604800 },
+        },
+    },
+}
+local modelItems = shared.collectModelItems(mockCandidates)
+assert(#modelItems == 3, string.format("Expected 3 unpacked model items, got %d", #modelItems))
+assert(modelItems[1].name == "Codex", "First item must be Codex")
+assert(modelItems[2].name == "Gemini", "Second item must be Gemini")
+assert(modelItems[3].name == "Claude & GPT OSS", "Third item must be Claude & GPT OSS")
+
+-- Test collectResetCredits
+local mockCreditCandidates = {
+    {
+        id = "anthropic",
+        display_name = "Claude",
+        status = "ready",
+        sections = {
+            {
+                type = "block",
+                label = "Reset Credits",
+                body = {
+                    "Weekly Reset · Expires in 5d",
+                },
+            },
+        },
+    },
+}
+local parsedCredits = shared.collectResetCredits(mockCreditCandidates, nil)
+assert(#parsedCredits == 1, "Expected 1 parsed reset credit")
+assert(parsedCredits[1].providerName == "Claude", "Parsed credit provider must be Claude")
+assert(parsedCredits[1].expiry:find("5d"), "Expiry string must contain 5d")
+
 io.write("ok: shared timestamps, availability, provider order, mathematical triage score, and reset staggering\n")
+
