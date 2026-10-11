@@ -37,10 +37,10 @@ local CARD = {
     borderWidth = 1,
 }
 
-local function cardStyle(gap, fill, border)
+local function cardStyle(gap, fill, border, padding)
     return {
         gap = gap or CARD.gap,
-        padding = CARD.padding,
+        padding = padding or CARD.padding,
         radius = CARD.radius,
         fill = fill or CARD.fill,
         border = border or CARD.border,
@@ -543,7 +543,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 text = "Claim",
                 glyph = "external-link",
                 variant = "primary",
-                controlSize = "xs",
+                controlSize = "sm",
                 tooltip = "Open dashboard to claim weekly reset",
                 onClick = function()
                     if type(noctalia.runAsync) == "function" then
@@ -708,7 +708,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 glyph = isBusy and "loader-2" or "bolt",
                 text = isBusy and "Starting..." or "Start 5h",
                 variant = "outline",
-                controlSize = "xs",
+                controlSize = "sm",
                 enabled = not isBusy,
                 tooltip = "Send 1-token prompt to trigger 5h rolling window now",
                 onClick = function()
@@ -847,7 +847,7 @@ local function renderCreditCard(credit)
     local openBtn = dashUrl and ui.button({
         glyph = "external-link",
         variant = "ghost",
-        controlSize = "xs",
+        controlSize = "sm",
         tooltip = "Open dashboard to manage reset",
         onClick = function()
             if type(noctalia.runAsync) == "function" then
@@ -879,7 +879,7 @@ local function renderCreditCard(credit)
         creditRow[#creditRow + 1] = openBtn
     end
 
-    return ui.column(cardStyle(6), {
+    return ui.column(cardStyle(4, nil, nil, 8), {
         ui.row({ gap = 6, align = "center", tooltip = credit.fullTitle }, creditRow),
         ui.row({
             gap = 5, align = "center",
@@ -1010,7 +1010,7 @@ local function renderColumns(candidates)
     end
 
     if staggerPlan and staggerPlan.hasCollision then
-        local stratCard = ui.column(cardStyle(6), {
+        local stratCard = ui.column(cardStyle(4, nil, nil, 8), {
             ui.row({ gap = 6, align = "center" }, {
                 ui.glyph({ name = "calendar-clock", size = 15, color = "primary" }),
                 ui.label({
@@ -1063,7 +1063,7 @@ local function renderColumns(candidates)
                     text = "Open Dashboard",
                     glyph = "external-link",
                     variant = "primary",
-                    controlSize = "xs",
+                    controlSize = "sm",
                     onClick = function()
                         if type(noctalia.runAsync) == "function" then
                             noctalia.runAsync("xdg-open '" .. dashUrl .. "'")
@@ -1071,15 +1071,31 @@ local function renderColumns(candidates)
                     end,
                 })
             end
-            local claimCard = ui.column(cardStyle(6), claimCardChildren)
+            local claimCard = ui.column(cardStyle(4, nil, nil, 8), claimCardChildren)
             table.insert(creditCards, 1, claimCard)
         end
     end
     if #creditCards == 0 then
-        creditCards[#creditCards + 1] = ui.column(CARD, {
+        creditCards[#creditCards + 1] = ui.column(cardStyle(6, nil, nil, 10), {
             ui.row({ gap = 8, align = "center" }, {
                 ui.glyph({ name = "info-circle", size = 18, color = "on_surface_variant" }),
                 ui.label({ text = "No pending reset credits", fontSize = 16, color = "on_surface_variant" }),
+            }),
+        })
+    end
+    if #sessionCards == 0 then
+        sessionCards[#sessionCards + 1] = ui.column(cardStyle(6, nil, nil, 10), {
+            ui.row({ gap = 8, align = "center" }, {
+                ui.glyph({ name = "info-circle", size = 18, color = "on_surface_variant" }),
+                ui.label({ text = "No active session metrics", fontSize = 15, color = "on_surface_variant" }),
+            }),
+        })
+    end
+    if #weeklyCards == 0 then
+        weeklyCards[#weeklyCards + 1] = ui.column(cardStyle(6, nil, nil, 10), {
+            ui.row({ gap = 8, align = "center" }, {
+                ui.glyph({ name = "info-circle", size = 18, color = "on_surface_variant" }),
+                ui.label({ text = "No active weekly metrics", fontSize = 15, color = "on_surface_variant" }),
             }),
         })
     end
@@ -1102,7 +1118,7 @@ local function renderColumns(candidates)
             ui.label({ text = "Session (5h)", fontSize = 18, fontWeight = "bold", color = "on_surface" }),
         }),
         ui.separator({ orientation = "horizontal", color = "outline", opacity = 0.16 }),
-        ui.column({ gap = 6, align = "stretch" }, sessionCards),
+        ui.scroll({ flexGrow = 1, gap = 6, align = "stretch" }, sessionCards),
     })
 
     local col2 = ui.column({
@@ -1123,7 +1139,7 @@ local function renderColumns(candidates)
             ui.label({ text = "Weekly (7d)", fontSize = 18, fontWeight = "bold", color = "on_surface" }),
         }),
         ui.separator({ orientation = "horizontal", color = "outline", opacity = 0.16 }),
-        ui.column({ gap = 6, align = "stretch" }, weeklyCards),
+        ui.scroll({ flexGrow = 1, gap = 6, align = "stretch" }, weeklyCards),
     })
 
     local col3 = ui.column({
@@ -1144,7 +1160,7 @@ local function renderColumns(candidates)
             ui.label({ text = "Reset Credits", fontSize = 18, fontWeight = "bold", color = "on_surface" }),
         }),
         ui.separator({ orientation = "horizontal", color = "outline", opacity = 0.16 }),
-        ui.column({ gap = 6, align = "stretch" }, creditCards),
+        ui.scroll({ flexGrow = 1, gap = 6, align = "stretch" }, creditCards),
     })
 
     local columns = {

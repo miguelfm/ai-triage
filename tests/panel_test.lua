@@ -152,4 +152,25 @@ local rejectedLabels = labels(loadPanel(rejectedProvider))
 assert(not has(rejectedLabels, "Claude"),
        "a terminal provider should leave the panel immediately")
 
-io.write("ok: malformed collections and authentication errors handled safely in panel\n")
+local normalReport = {
+    entries = {
+        {
+            id = "google",
+            display_name = "Gemini",
+            plan = "Advanced",
+            status = "ready",
+            metrics = {
+                { label = "Session", percent = 20, window_secs = 18000 },
+                { label = "Weekly", percent = 50, window_secs = 604800 },
+            },
+            sections = {
+                { type = "text", label = "Reset", value = "Reset in 5d" },
+            },
+        },
+    },
+}
+local renderedTree = loadPanel(normalReport)
+local scrollElements = collect(renderedTree, "scroll")
+assert(#scrollElements >= 3, "expected at least 3 ui.scroll elements for the 3 columns, found " .. tostring(#scrollElements))
+
+io.write("ok: malformed collections, authentication errors, and scroll containers verified in panel\n")

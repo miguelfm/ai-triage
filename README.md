@@ -41,8 +41,7 @@ Install the respective CLI for any backend provider you wish to prime.
 - **Robust Rolling Window Detection**: Real-time detection of active rolling session clocks across all supported providers, ensuring countdowns and needle markers begin immediately upon usage.
 - **Reset Credit Collision & Staggering Engine**: Detects concurrent on-demand reset credit expirations across providers (e.g. Claude and Codex expiring in the same week). Automatically calculates a desynchronization strategy—accelerating the candidate provider to reach 100% weekly usage at mid-cycle ($\approx 3.5\text{d}$) to claim its reset early, while deferring the other provider to the final week. Identifies the optimal moment to claim resets (`⭐ Claim Reset`) with one-click dashboard access.
 - **Streamlined Triage Panel**: An aligned, three-column ranking view displaying provider identity, dynamic urgency score, and real-time status badges (`⚡ Rush`, `🔥 Burn`, `⭐ Fresh`, `Optimal`, `Safe`, `Low`, `⊗ Exhausted`). The top row is always your optimal routing choice.
-- **Dynamic Time Needle Marker**: The dual-layer gauge features a live needle marker that ticks with the active countdown, visually indicating whether consumption is ahead or behind elapsed time.
-- **Compact Geometry**: Optimized 540px vertical height with clean spacing and aligned multi-provider columns.
+- **Adaptive Geometry & Native Scrolling**: Balanced 620px panel height with per-column native scrolling (`ui.scroll`) to guarantee zero overflow across all screen sizes and provider configurations.
 
 ## Usage
 
