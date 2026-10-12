@@ -585,17 +585,109 @@ function M.severityRole(section, calm)
 end
 
 -- ── Reset credit analysis and staggering plan ─────────────────────────────────
+-- A weekly reset credit is worth the quota it lets you burn before the natural
+-- renewal would have refilled the week anyway, minus the unused quota it throws
+-- away. That holds whether a claim zeroes the counter under the same renewal or
+-- opens a fresh 7d window (which then stands in for the natural renewal), so a
+-- claim is bounded by the active hours left in the cycle: claiming a few hours
+-- before the renewal buys back one session at most and wastes the credit.
+--
+-- Capacity runs at full 5h-session pace, each session spending 100/gearing % of
+-- the week, the same C_max the weekly triage uses.
+M.CLAIM_MIN_WEEKLY_PCT = 99 -- the week is effectively spent
+M.CLAIM_VALUE_RATIO = 0.5   -- spend it now only for at least half of what it is worth later
+
+local function sessionCapacity(activeHours, gearing)
+    return math.max(0.0, activeHours) * 20.0 / gearing
+end
+
+-- Best gain from spending a credit inside one cycle: burn `wFree` at full pace,
+-- claim as soon as it runs out (or right before the credit expires), then burn
+-- the refill until the renewal. Hours are active hours from the start of the cycle.
+local function cycleClaimGain(cycleHours, expiryHours, wFree, gearing)
+    if expiryHours <= 0 then return 0.0 end
+    local burnHours = math.min(wFree * gearing / 20.0, expiryHours, cycleHours)
+    local leftover = wFree - math.min(wFree, sessionCapacity(burnHours, gearing))
+    local refill = math.min(100.0, sessionCapacity(cycleHours - burnHours, gearing))
+    return math.max(0.0, refill - leftover)
+end
+
+-- When to spend a provider's earliest-expiring credit: "claim" now, "advance"
+-- (worth spending this cycle once the week runs out), or "hold" for a later cycle.
+local function adviseResetCredit(stats, gearing, nowTime, config)
+    local renewAt = stats.weeklyResetAt
+    local window = stats.weeklyWindowSecs
+    local expiresAt = stats.earliestExpiry
+    local wFree = math.max(0.0, 100.0 - stats.weeklyPercent)
+
+    local cycleHours = M.calculateActiveHours(nowTime, renewAt, config, true)
+    local expiryHours = expiresAt >= renewAt and math.huge
+        or M.calculateActiveHours(nowTime, expiresAt, config, true)
+    local nowGain = math.max(0.0, math.min(100.0, sessionCapacity(cycleHours, gearing)) - wFree)
+    local cycleGain = cycleClaimGain(cycleHours, expiryHours, wFree, gearing)
+
+    -- The next cycle starts at 0%: the whole week has to be burnt before a claim pays.
+    local laterGain = 0.0
+    if expiresAt > renewAt then
+        local nextEnd = renewAt + window
+        local nextHours = M.calculateActiveHours(renewAt, nextEnd, config, false)
+        local nextExpiry = expiresAt >= nextEnd and math.huge
+            or M.calculateActiveHours(renewAt, expiresAt, config, false)
+        laterGain = cycleClaimGain(nextHours, nextExpiry, 100.0, gearing)
+    end
+
+    local oneSession = 100.0 / gearing
+    local worthIt = cycleGain >= oneSession and cycleGain >= M.CLAIM_VALUE_RATIO * laterGain
+    local spent = stats.weeklyPercent >= M.CLAIM_MIN_WEEKLY_PCT
+    local expiryFirst = expiryHours < wFree * gearing / 20.0
+    local renewIn = formatDuration(renewAt - nowTime)
+    local expiresIn = formatDuration(expiresAt - nowTime)
+
+    local advice = {
+        nowGain = nowGain,
+        cycleGain = cycleGain,
+        laterGain = laterGain,
+        lastChance = laterGain < oneSession,
+        sessionsToSpend = wFree / oneSession,
+    }
+    if worthIt and (spent or (expiryFirst and expiryHours <= 1.0)) then
+        advice.status = "claim"
+        advice.summary = spent
+            and string.format("Weekly quota spent · claim now: ~%d%% of a week back before the renewal in %s",
+                math.floor(nowGain + 0.5), renewIn)
+            or string.format("Reset credit expires in %s · claim now: ~%d%% of a week back",
+                expiresIn, math.floor(nowGain + 0.5))
+    elseif worthIt then
+        advice.status = "advance"
+        advice.summary = expiryFirst
+            and string.format("Claim before the credit expires in %s · worth ~%d%% of a week",
+                expiresIn, math.floor(cycleGain + 0.5))
+            or string.format("Claim once this week runs out · worth ~%d%% of a week",
+                math.floor(cycleGain + 0.5))
+    else
+        advice.status = "hold"
+        advice.summary = laterGain > cycleGain
+            and string.format("Keep the reset: renews in %s, a claim now adds ~%d%% of a week vs ~%d%% next cycle",
+                renewIn, math.floor(cycleGain + 0.5), math.floor(laterGain + 0.5))
+            or string.format("Keep the reset: a claim this cycle adds only ~%d%% of a week",
+                math.floor(cycleGain + 0.5))
+    end
+    return advice
+end
+
 -- When two or more providers have weekly reset credits/promotions expiring
 -- around the same date (e.g. within 7 days in the same ~16d horizon),
 -- it is practically impossible to double quota consumption for both in the same final week.
 -- The optimal strategy is staggering:
--- 1. One provider is advanced to burn its weekly quota in half the time (~3.5d)
---    and claim the reset mid-cycle, completing two full quotas that week.
+-- 1. One provider is advanced to burn its weekly quota early and claim the reset
+--    mid-cycle, completing two full quotas that week. When its current cycle is
+--    too short for that, the advance starts from its next renewal.
 -- 2. The other provider is deferred to the final expiration week.
--- 3. When a provider with reset credits reaches 100% weekly usage (or >=95%),
---    an "Optimal Reset Window" is flagged to claim immediately.
-function M.analyzeResetCredits(entries, nowTime)
+-- 3. A claim is flagged only once the week is spent (or the credit is about to
+--    expire) and the cycle has enough active hours left to make it pay.
+function M.analyzeResetCredits(entries, nowTime, scheduleConfig)
     nowTime = nowTime or os.time()
+    scheduleConfig = scheduleConfig or M.getScheduleConfig()
     local providerStats = {}
     local allExpiring = {}
 
@@ -609,8 +701,10 @@ function M.analyzeResetCredits(entries, nowTime)
 
         local _, wMetric = M.dualMetrics(entry.metrics)
         local wPct = wMetric and tonumber(wMetric.percent) or 0
+        local wWindow = wMetric and tonumber(wMetric.window_secs) or 604800
         local wAt = wMetric and M.parseIso(wMetric.reset_at)
-        local wRemainingSecs = (wAt and wAt > nowTime) and (wAt - nowTime) or 604800
+        if wAt == nil or wAt <= nowTime then wAt = nowTime + wWindow end
+        local wRemainingSecs = wAt - nowTime
 
         local list = {}
         if rawCredits and #rawCredits > 0 then
@@ -662,9 +756,12 @@ function M.analyzeResetCredits(entries, nowTime)
                 earliestExpiry = earliest and earliest.expiresAt or (nowTime + 604800 * 2),
                 earliestRemainingSecs = earliest and earliest.remainingSecs or (604800 * 2),
                 weeklyPercent = wPct,
+                weeklyResetAt = wAt,
+                weeklyWindowSecs = wWindow,
                 weeklyRemainingSecs = wRemainingSecs,
-                canClaimNow = (wPct >= 95 and count > 0),
             }
+            stats.advice = adviseResetCredit(stats, M.getModelGearing(id, displayName), nowTime, scheduleConfig)
+            stats.canClaimNow = stats.advice.status == "claim"
             providerStats[baseId] = stats
             if earliest then
                 allExpiring[#allExpiring + 1] = stats
@@ -680,13 +777,23 @@ function M.analyzeResetCredits(entries, nowTime)
         deferProviderId = nil,
         deferName = nil,
         daysUntilExpiry = nil,
+        expiresAt = nil,
         timeDiffHours = nil,
+        advanceNow = false,
         optimalClaimProviders = {},
+        -- Providers whose weekly quota should be burnt early so the credit is claimed this cycle
+        fastTrack = {},
+        creditAdvice = {},
     }
 
     for baseId, stats in pairs(providerStats) do
+        staggerPlan.creditAdvice[baseId] = stats.advice
         if stats.canClaimNow then
             staggerPlan.optimalClaimProviders[baseId] = true
+        end
+        -- Last cycle in which the credit can pay off: burn the week early to reach it.
+        if stats.advice.status == "advance" and stats.advice.lastChance then
+            staggerPlan.fastTrack[baseId] = true
         end
     end
 
@@ -705,13 +812,26 @@ function M.analyzeResetCredits(entries, nowTime)
                 staggerPlan.collidingProviders = { p1, p2 }
                 staggerPlan.timeDiffHours = diffSecs / 3600
                 staggerPlan.daysUntilExpiry = math.min(p1.earliestRemainingSecs, p2.earliestRemainingSecs) / 86400
+                staggerPlan.expiresAt = math.min(p1.earliestExpiry, p2.earliestExpiry)
 
                 -- Advance fitness evaluation:
-                -- Higher current weekly consumption (wPct) = closer to reaching 100% in a compressed timeframe (~3.5d).
-                -- Single vs multiple credits: if p1 only has 1 credit while p2 has multiple consecutive credits (e.g. Codex with 3),
-                -- p1 needs to secure its single cycle, whereas p2 has subsequent cycles.
-                local p1Score = p1.weeklyPercent + (p1.available == 1 and 25 or 0)
-                local p2Score = p2.weeklyPercent + (p2.available == 1 and 25 or 0)
+                -- 1. Reserve scarcity: a provider with 1 credit must secure its single window,
+                --    whereas providers with multiple credits have subsequent renewal cycles.
+                -- 2. Progress / Cycle proximity: higher weekly progress (or imminent renewal
+                --    starting a fresh week in a few hours) minimizes burn friction.
+                local function advanceScore(p)
+                    local reserveScarcity = (1.0 / math.max(1, p.available)) * 50.0
+                    local progress = p.weeklyPercent
+                    if p.advice.status == "hold" and not p.advice.lastChance then
+                        -- For providers held pending imminent renewal: proximity to the fresh cycle
+                        progress = (1.0 - math.min(1.0, p.weeklyRemainingSecs / p.weeklyWindowSecs)) * 30.0
+                    elseif p.advice.lastChance then
+                        progress = progress + 100.0
+                    end
+                    return reserveScarcity + progress
+                end
+                local p1Score = advanceScore(p1)
+                local p2Score = advanceScore(p2)
 
                 local advanceP = (p1Score >= p2Score) and p1 or p2
                 local deferP = (p1Score >= p2Score) and p2 or p1
@@ -720,6 +840,16 @@ function M.analyzeResetCredits(entries, nowTime)
                 staggerPlan.advanceName = advanceP.name
                 staggerPlan.deferProviderId = deferP.baseId
                 staggerPlan.deferName = deferP.name
+                staggerPlan.advanceNow = advanceP.advice.status == "advance"
+                if staggerPlan.advanceNow then
+                    staggerPlan.fastTrack[advanceP.baseId] = true
+                end
+                -- The deferred credit waits for a later cycle while that one can still pay it back.
+                if deferP.advice.status == "advance" and not deferP.advice.lastChance then
+                    deferP.advice.status = "hold"
+                    deferP.advice.summary = string.format("Deferred: keep it for the cycle after the renewal in %s · worth ~%d%% of a week",
+                        formatDuration(deferP.weeklyRemainingSecs), math.floor(deferP.advice.laterGain + 0.5))
+                end
                 break
             end
         end
@@ -886,11 +1016,9 @@ function M.collectResetCredits(candidates, staggerPlan)
                             role = "defer"
                         end
                     end
-                    if staggerPlan and staggerPlan.optimalClaimProviders and staggerPlan.optimalClaimProviders[baseId] then
-                        role = "claim"
-                    end
 
                     credits[#credits + 1] = {
+                        baseId = baseId,
                         providerId = providerId,
                         providerName = providerName,
                         glyph = M.providerGlyph(providerId),
@@ -910,6 +1038,19 @@ function M.collectResetCredits(candidates, staggerPlan)
         end
         return (a.providerName or "") < (b.providerName or "")
     end)
+
+    -- Only the earliest-expiring credit of a provider is the next one to spend.
+    local seen = {}
+    for _, credit in ipairs(credits) do
+        if not seen[credit.baseId] then
+            seen[credit.baseId] = true
+            local advice = staggerPlan and staggerPlan.creditAdvice and staggerPlan.creditAdvice[credit.baseId]
+            credit.advice = advice and advice.summary or nil
+            if staggerPlan and staggerPlan.optimalClaimProviders and staggerPlan.optimalClaimProviders[credit.baseId] then
+                credit.role = "claim"
+            end
+        end
+    end
 
     return credits
 end
@@ -1045,6 +1186,9 @@ function M.calculateActiveHours(tStart, tEnd, config, isUserActiveNow)
 
     return math.max(0.25, totalActiveHours)
 end
+
+-- Nominal weekly active waking hours: 7 days * ~15 active hours/day (discounting sleep and meal breaks)
+M.NOMINAL_WEEKLY_ACTIVE_HOURS = 105.0
 
 -- Model Quota Gearing Ratios (K_m = L_weekly / L_session):
 -- Defines how many full 100% 5h sessions equal 100% weekly quota.
@@ -1231,9 +1375,7 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
 
     local wFactor = 1.0
     local uResetWeekly = 0.0
-    local uStaggerAdvance = 0.0
     local uBottleneck = 0.0
-    local uLowKConserve = 0.0
     local dutyCycle = 0.0
     local H_w = 0.0
 
@@ -1242,15 +1384,14 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         H_w = M.calculateActiveHours(nowTime, wAt, scheduleConfig, isUserActiveNow)
         if H_w < 0.5 then H_w = 0.5 end
 
-        -- If this model belongs to the provider designated to ADVANCE reset (stagger leader):
-        -- The objective is to burn 100% of the weekly quota in half the time (~3.5d / ~45 active hours)
-        -- to claim the reset mid-cycle and double weekly throughput.
+        -- If this model belongs to a provider fast-tracking its reset credit (stagger leader,
+        -- or the last cycle in which the credit pays off): burn 100% of the weekly quota in
+        -- half the time (~3.5d / ~45 active hours) to claim the reset mid-cycle and double
+        -- weekly throughput. A cycle too short for the claim to pay is never fast-tracked.
         local isStaggerLeader = false
-        if staggerPlan and staggerPlan.hasCollision and staggerPlan.advanceProviderId then
+        if staggerPlan and staggerPlan.fastTrack then
             local baseId = M.baseProvider(item.providerId or (item.entry and item.entry.id))
-            if baseId == staggerPlan.advanceProviderId then
-                isStaggerLeader = true
-            end
+            isStaggerLeader = staggerPlan.fastTrack[baseId] == true
         end
 
         local targetH_w = H_w
@@ -1264,9 +1405,10 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         local C_max = (targetH_w * 20.0) / gearing
         dutyCycle = wFree / math.max(1.0, C_max)
 
-        -- Required weekly consumption velocity ratio Pi_w, geared by model capacity ratio:
-        local Pi_w = (wFree / targetH_w) * 1.68
-        local gearedPi_w = Pi_w * ((gearing / 10.0) ^ 0.60)
+        -- Required weekly consumption velocity ratio Pi_w relative to nominal active pace:
+        local Pi_w = (wFree / targetH_w) * (M.NOMINAL_WEEKLY_ACTIVE_HOURS / 100.0)
+        local defaultGearing = M.DEFAULT_GEARING["default"] or 10.0
+        local gearedPi_w = Pi_w * ((gearing / defaultGearing) ^ 0.60)
 
         -- Threshold for low headroom scales with gearing (1 session is 100/gearing %):
         local oneSessionPct = 100.0 / gearing
@@ -1280,34 +1422,19 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             wFactor = math.min(maxWeight, math.max(0.20, 0.40 + 0.60 * gearedPi_w))
         end
 
-        -- Stagger leader acceleration bonus:
-        if isStaggerLeader and wFree >= 5.0 then
-            uStaggerAdvance = 25.0 * (wFree / 100.0) * math.min(1.0, (100.0 - targetH_w) / 100.0)
-        end
-
-        -- Time-arbitrage and perishability bonus for imminent weekly reset (<= 24 active hours):
+        -- Time-arbitrage and perishability urgency for imminent weekly reset (<= 24 active hours):
         -- Reflects that quotas expire permanently if not consumed.
         -- When active hours <= 24h, remaining 5h sessions are scarce (e.g. <= 2 sessions left).
         if H_w <= 24.0 and wFree > 0.5 then
-            local ratio = math.min(8.0, (24.0 / math.max(0.5, H_w))^1.25)
-            -- Final sprint bonus: when weekly reset is within 3 active hours,
-            -- unspent quota risks immediate total loss, prioritizing it above all distant models.
+            local ratio = math.min(8.0, (24.0 / math.max(0.5, H_w)) ^ 1.25)
             local sprintBonus = H_w <= 3.0 and (220.0 * (3.0 - H_w) / 3.0) or 0.0
             uResetWeekly = 50.0 + sprintBonus + (wFree * 4.0 * ratio)
         end
 
-        -- Bottleneck urgency bonus for high-gearing models (K >= 8):
-        -- When dutyCycle >= 0.70 and weekly reset is not yet in the final 24h:
+        -- Unified capacity bottleneck urgency when session slots are scarce:
         if dutyCycle >= 0.70 and wFree >= 5.0 and H_w > 24.0 then
-            local excess = math.min(2.0, dutyCycle - 0.50)
-            uBottleneck = 25.0 * (wFree / 100.0) * excess
-        end
-
-        -- Low-K conservation penalty: when K <= 3.5 (e.g. Claude & GPT OSS) with ample time (H_w >= 18h):
-        if gearing <= 3.5 and H_w >= 18.0 and dutyCycle <= 0.65 then
-            local scarcity = (3.5 - gearing) / 3.5
-            local timeHorizon = math.min(1.0, (H_w - 18.0) / 36.0)
-            uLowKConserve = -20.0 * scarcity * (1.0 - dutyCycle) * timeHorizon
+            local excess = math.min(1.5, dutyCycle - 0.50)
+            uBottleneck = 20.0 * (wFree / 100.0) * excess
         end
     end
 
@@ -1340,21 +1467,17 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             end
 
             -- Coupling: session velocity modulated by weekly pace factor and bonuses
-            score = (baseSession * wFactor) + uBurnSession + uResetWeekly + uStaggerAdvance + uBottleneck + uLowKConserve
+            score = (baseSession * wFactor) + uBurnSession + uResetWeekly + uBottleneck
         else
             -- Uninitiated session (0% usage, timer not yet started):
             -- Discounted if available active time before sleep/off-hours is short
             local availabilityDiscount = math.min(1.0, math.max(0.35, H_s / 5.0))
             local baseSession = sFree * 0.75 * availabilityDiscount
-            local uKickstart = 0.0
-            if dutyCycle >= 0.75 and H_w > 24.0 then
-                uKickstart = 12.0 * math.min(1.5, dutyCycle - 0.50)
-            end
-            score = (baseSession * wFactor) + uKickstart + uResetWeekly + uStaggerAdvance + uBottleneck + uLowKConserve
+            score = (baseSession * wFactor) + uResetWeekly + uBottleneck
         end
     else
         -- No session metric: optimize directly on weekly quota
-        score = (wFree * wFactor) + uResetWeekly + uStaggerAdvance + uBottleneck + uLowKConserve
+        score = (wFree * wFactor) + uResetWeekly + uBottleneck
     end
 
     return score

@@ -223,26 +223,26 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
     local isWeeklyExhausted = (wMetric ~= nil and wPct >= 100)
     local baseId = item and shared.baseProvider(item.providerId or (item.entry and item.entry.id))
 
-    local hasCredit = false
-    if item and item.entry and type(item.entry.reset_credits) == "table" then
-        hasCredit = (tonumber(item.entry.reset_credits.available) or 0) > 0
-    end
-    if not hasCredit and staggerPlan and staggerPlan.optimalClaimProviders and baseId then
-        hasCredit = staggerPlan.optimalClaimProviders[baseId] == true
+    -- Reset credit advice: a claim only pays with enough active hours left before the renewal
+    local advice = staggerPlan and staggerPlan.creditAdvice and baseId and staggerPlan.creditAdvice[baseId]
+
+    if isWeekly and advice and advice.status == "claim" then
+        return {
+            status = "claim_reset",
+            label = "Claim Reset",
+            glyph = "ticket",
+            color = "#c084fc",
+            bg = "tertiary/0.22",
+            border = "tertiary/0.55",
+            cardBorder = "tertiary/0.55",
+            summary = advice.summary,
+        }
     end
 
     if percent >= 100 or isWeeklyExhausted then
-        if isWeekly and hasCredit then
-            return {
-                status = "claim_reset",
-                label = "Claim Reset",
-                glyph = "ticket",
-                color = "#c084fc",
-                bg = "tertiary/0.22",
-                border = "tertiary/0.55",
-                cardBorder = "tertiary/0.55",
-                summary = "Weekly quota at 100% · Optimal moment to claim reset and double quota!",
-            }
+        local summary = isWeeklyExhausted and "Weekly quota depleted" or "Quota depleted"
+        if isWeekly and advice then
+            summary = summary .. " · " .. advice.summary
         end
         return {
             status = "exhausted",
@@ -252,11 +252,12 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
             bg = "error/0.18",
             border = "error/0.45",
             cardBorder = "error/0.45",
-            summary = isWeeklyExhausted and "Weekly quota depleted" or "Quota depleted",
+            summary = summary,
         }
     end
 
-    if isWeekly and staggerPlan and staggerPlan.hasCollision and staggerPlan.advanceProviderId == baseId and percent < 100 then
+    if isWeekly and advice and staggerPlan.fastTrack and staggerPlan.fastTrack[baseId] then
+        local isLeader = staggerPlan.hasCollision and staggerPlan.advanceProviderId == baseId
         return {
             status = "fast_track",
             label = "Fast-track",
@@ -265,7 +266,9 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
             bg = "primary/0.20",
             border = "primary/0.50",
             cardBorder = "primary/0.50",
-            summary = string.format("Advance reset: burn remaining %d%% in ~3.5d to double quota and stagger expirations", remainingQuota),
+            summary = string.format("%s: burn remaining %d%% (~%d sessions), then claim · worth ~%d%% of a week",
+                isLeader and "Advance reset" or "Last cycle for the reset credit",
+                remainingQuota, math.max(1, math.ceil(advice.sessionsToSpend - 0.25)), math.floor(advice.cycleGain + 0.5)),
         }
     end
 
@@ -896,7 +899,7 @@ local function renderCreditCard(credit, typo)
         creditRow[#creditRow + 1] = openBtn
     end
 
-    return ui.column(cardStyle(4, nil, nil, 8), {
+    local body = {
         ui.row({ gap = 6, align = "center", tooltip = credit.fullTitle }, creditRow),
         ui.row({
             gap = 5, align = "center",
@@ -910,8 +913,17 @@ local function renderCreditCard(credit, typo)
                 color = fgColor,
                 maxLines = 1,
             }),
+        }),
+    }
+    if credit.advice ~= nil then
+        body[#body + 1] = ui.label({
+            text = credit.advice,
+            fontSize = fs(11),
+            color = credit.role == "claim" and "on_surface" or "on_surface_variant",
+            maxLines = 2,
         })
-    })
+    end
+    return ui.column(cardStyle(4, nil, nil, 8), body)
 end
 
 -- ── 3-Column Layout ───────────────────────────────────────────────────────────
@@ -1032,6 +1044,25 @@ local function renderColumns(candidates, typo)
     end
 
     if staggerPlan and staggerPlan.hasCollision then
+        local advanceName = staggerPlan.advanceName or "Claude"
+        local deferName = staggerPlan.deferName or "Codex"
+        local expiryDay = staggerPlan.expiresAt and os.date("%b %d", staggerPlan.expiresAt) or "?"
+        local leader = providerStats and providerStats[staggerPlan.advanceProviderId]
+        local leaderAdvice = leader and leader.advice
+        local advanceStep
+        if leaderAdvice == nil then
+            advanceStep = string.format("1. Advance %s: burn its weekly quota early and claim the reset once it runs out.", advanceName)
+        elseif leaderAdvice.status == "claim" then
+            advanceStep = string.format("1. Claim %s's reset now: ~%d%% of a week back.", advanceName, math.floor(leaderAdvice.nowGain + 0.5))
+        elseif leaderAdvice.status == "advance" then
+            advanceStep = string.format("1. Advance %s now: burn the remaining %d%%, then claim · worth ~%d%% of a week.",
+                advanceName, math.floor(100 - leader.weeklyPercent + 0.5), math.floor(leaderAdvice.cycleGain + 0.5))
+        elseif not leaderAdvice.lastChance then
+            advanceStep = string.format("1. Advance %s after its renewal in %s: burn the new week early, then claim before %s.",
+                advanceName, formatSeconds(leader.weeklyRemainingSecs), expiryDay)
+        else
+            advanceStep = string.format("1. %s: %s", advanceName, leaderAdvice.summary)
+        end
         local stratCard = ui.column(cardStyle(4, nil, nil, 8), {
             ui.row({ gap = 6, align = "center" }, {
                 ui.glyph({ name = "calendar-clock", size = gs(15), color = "primary" }),
@@ -1041,20 +1072,20 @@ local function renderColumns(candidates, typo)
                 }),
             }),
             ui.label({
-                text = string.format("%s & %s expire together (~Oct 22). Staggering strategy:", staggerPlan.advanceName or "Claude", staggerPlan.deferName or "Codex"),
+                text = string.format("%s & %s expire together (~%s). Staggering strategy:", advanceName, deferName, expiryDay),
                 fontSize = fs(11), color = "on_surface_variant",
             }),
             ui.row({ gap = 6, align = "start" }, {
                 ui.glyph({ name = "arrow-right", size = gs(12), color = "#38bdf8" }),
                 ui.label({
-                    text = string.format("1. Advance %s: burn remaining quota to 100%% in ~3.5d and claim reset.", staggerPlan.advanceName or "Claude"),
+                    text = advanceStep,
                     fontSize = fs(11), fontWeight = "semibold", color = "on_surface", flexGrow = 1,
                 }),
             }),
             ui.row({ gap = 6, align = "start" }, {
                 ui.glyph({ name = "arrow-right", size = gs(12), color = "outline" }),
                 ui.label({
-                    text = string.format("2. Defer %s: reserve reset credit for the following week.", staggerPlan.deferName or "Codex"),
+                    text = string.format("2. Defer %s: keep its reset credit for its last cycle before it expires.", deferName),
                     fontSize = fs(11), color = "on_surface_variant", flexGrow = 1,
                 }),
             }),
@@ -1076,7 +1107,7 @@ local function renderColumns(candidates, typo)
                     }),
                 }),
                 ui.label({
-                    text = string.format("%s reached 100%% weekly quota. Claim reset now to double quota!", pName),
+                    text = string.format("%s · %s", pName, stats and stats.advice and stats.advice.summary or "claim the reset now"),
                     fontSize = fs(11), color = "on_surface",
                 }),
             }

@@ -84,9 +84,10 @@ $$\text{DutyCycle} = \frac{w_{\text{free}}}{\max(1.0, C_{\max})}$$
 ---
 
 #### 1.2.3 Geared Weekly Consumption Velocity ($\Pi_{w, \text{geared}}$) & Pacing Factor ($W_{\text{weekly}}$)
-The required weekly burn velocity $\Pi_w$, adjusted for model capacity gearing:
-$$\Pi_w = \left(\frac{w_{\text{free}}}{H_w^*}\right) \times 1.68$$
-$$\Pi_{w, \text{geared}} = \Pi_w \times \left(\frac{K_m}{10.0}\right)^{0.60}$$
+The required weekly burn velocity $\Pi_w$ normalized relative to nominal sustainable active pace ($H_{\text{weekly\_active}} = 105.0\text{h}$, representing 7 days × 15 active waking hours/day):
+$$\Pi_w = \left(\frac{w_{\text{free}}}{H_w^*}\right) \times \left(\frac{105.0}{100.0}\right) = \left(\frac{w_{\text{free}}}{H_w^*}\right) \times 1.05$$
+$$\Pi_{w, \text{geared}} = \Pi_w \times \left(\frac{K_m}{K_0}\right)^{0.60}$$
+where $K_0 = 10.0$ is the reference baseline gearing.
 
 ##### Threshold for Low Headroom:
 The threshold for considering a model "low on headroom" scales with its gearing:
@@ -104,15 +105,7 @@ where $W_{\max} = 2.20$ if the model is the designated Stagger Advance Leader, a
 
 #### 1.2.4 Dynamic Urgency Additives
 
-##### 1. Stagger Leader Acceleration Bonus ($U_{\text{stagger\_advance}}$)
-When designated as the collision advance leader to trigger a mid-cycle reset:
-$$U_{\text{stagger\_advance}} = \begin{cases}
-25.0 \times \left(\frac{w_{\text{free}}}{100.0}\right) \times \min\left(1.0, \frac{100.0 - H_w^*}{100.0}\right) & \text{if isStaggerLeader and } w_{\text{free}} > 0.5\% \\
-0.0 & \text{otherwise}
-\end{cases}$$
-where $H_w^* = \min(H_w, \max(6.0, H_w \times 0.50))$ compresses the horizon to half-cycle ($\approx 3.5\text{d} / 45\text{h}$).
-
-##### 2. Perishability & Final Sprint Urgency ($U_{\text{reset\_weekly}}$)
+##### 1. Perishability & Final Sprint Urgency ($U_{\text{reset\_weekly}}$)
 For any model with unspent weekly quota ($w_{\text{free}} > 0.5\%$) within the perishable horizon ($H_w \le 24.0\text{h}$):
 $$\text{ratio} = \min\left(8.0, \left(\frac{24.0}{\max(0.5, H_w)}\right)^{1.25}\right)$$
 $$\text{sprintBonus} = \begin{cases}
@@ -124,17 +117,10 @@ $$U_{\text{reset\_weekly}} = 50.0 + \text{sprintBonus} + (w_{\text{free}} \times
 > [!IMPORTANT]
 > The final sprint bonus ($\text{sprintBonus}$) ensures that when a provider's weekly reset is within $\le 3\text{h}$, any remaining quota (even $2\text{–}5\%$) receives top triage priority over all distant models, eliminating the previous $5\%$ cutoff cliff and ensuring zero quota is forfeit.
 
-##### 3. Session Capacity Bottleneck Urgency ($U_{\text{bottleneck}}$)
-For high-gearing models ($K_m \ge 8.0$) facing an impending session capacity squeeze:
+##### 2. Session Capacity Bottleneck Urgency ($U_{\text{bottleneck}}$)
+For models facing an impending session capacity squeeze ($\text{DutyCycle} \ge 0.70$):
 $$U_{\text{bottleneck}} = \begin{cases}
-25.0 \times \left(\frac{w_{\text{free}}}{100.0}\right) \times \min(2.0, \text{DutyCycle} - 0.50) & \text{if } \text{DutyCycle} \ge 0.70, w_{\text{free}} \ge 5.0\%, H_w > 24\text{h} \\
-0.0 & \text{otherwise}
-\end{cases}$$
-
-##### 4. Low-Gearing Early-Cycle Conservation Penalty ($U_{\text{lowK\_conserve}}$)
-For low-gearing models ($K_m \le 3.5$, e.g. Claude & GPT OSS) with ample weekly horizon:
-$$U_{\text{lowK\_conserve}} = \begin{cases}
--20.0 \times \left(\frac{3.5 - K_m}{3.5}\right) \times (1.0 - \text{DutyCycle}) \times \min\left(1.0, \frac{H_w - 18.0}{36.0}\right) & \text{if } K_m \le 3.5, H_w \ge 18.0\text{h}, \text{DutyCycle} \le 0.65 \\
+20.0 \times \left(\frac{w_{\text{free}}}{100.0}\right) \times \min(1.5, \text{DutyCycle} - 0.50) & \text{if } \text{DutyCycle} \ge 0.70, w_{\text{free}} \ge 5.0\%, H_w > 24\text{h} \\
 0.0 & \text{otherwise}
 \end{cases}$$
 
@@ -153,20 +139,14 @@ $$U_{\text{burn}, s} = \begin{cases}
 0.0 & \text{otherwise}
 \end{cases}$$
 
-$$J_i(t) = (\text{baseSession} \times W_{\text{weekly}}) + U_{\text{burn}, s} + U_{\text{reset\_weekly}} + U_{\text{stagger\_advance}} + U_{\text{bottleneck}} + U_{\text{lowK\_conserve}}$$
+$$J_i(t) = (\text{baseSession} \times W_{\text{weekly}}) + U_{\text{burn}, s} + U_{\text{reset\_weekly}} + U_{\text{bottleneck}}$$
 
 ##### Case B: Unstarted Session ($s_{\text{started}} = \text{false}$, $U_{i,s} = 0\%$)
 Unstarted sessions are discounted based on available active hours before sleep:
 $$\text{availabilityDiscount} = \min\left(1.0, \max\left(0.35, \frac{H_s}{5.0}\right)\right)$$
 $$\text{baseSession} = s_{\text{free}} \times 0.75 \times \text{availabilityDiscount}$$
 
-Kickstart priming incentive for high-stress quotas:
-$$U_{\text{kickstart}} = \begin{cases}
-12.0 \times \min(1.5, \text{DutyCycle} - 0.50) & \text{if } \text{DutyCycle} \ge 0.75 \text{ and } H_w > 24.0\text{h} \\
-0.0 & \text{otherwise}
-\end{cases}$$
-
-$$J_i(t) = (\text{baseSession} \times W_{\text{weekly}}) + U_{\text{kickstart}} + U_{\text{reset\_weekly}} + U_{\text{stagger\_advance}} + U_{\text{bottleneck}} + U_{\text{lowK\_conserve}}$$
+$$J_i(t) = (\text{baseSession} \times W_{\text{weekly}}) + U_{\text{reset\_weekly}} + U_{\text{bottleneck}}$$
 
 ##### Case C: Hard Constraints (Lockouts)
 $$J_i(t) = \begin{cases}
@@ -182,14 +162,32 @@ $$J_i(t) = \begin{cases}
 ### 2.1 Problem
 When multiple providers offer on-demand weekly reset credits (e.g. Claude launch credits, Codex reset tokens) expiring concurrently within $\le 7$ days of each other in a near horizon ($\le 16\text{d}$), attempting to double token consumption for both in the final week creates an impossible human workload bottleneck.
 
-### 2.2 Desynchronization Algorithm
+### 2.2 Value of a Claim
+A claim is worth the quota it lets you burn before the natural weekly renewal would have refilled the week anyway, minus the unused quota it forfeits. This holds whether the claim zeroes the counter under the same renewal date or opens a fresh 7d window (which then stands in for the natural renewal). With $H$ the active hours between two instants, $K_m$ the model gearing and $C(H) = 20H / K_m$ the weekly share that full 5h sessions can burn in $H$:
+
+$$G_{\text{now}} = \min(100, C(H_{\text{now} \to R})) - w_{\text{free}}$$
+
+where $R$ is the natural renewal. Claiming 5h before $R$ therefore buys back one session at most ($\approx 14\%$ of a week for Claude Pro), and wastes the rest of the credit.
+
+The engine compares two quantities:
+- **This cycle** ($G_{\text{cycle}}$): burn $w_{\text{free}}$ at full pace, claim as soon as it runs out (or right before the credit expires), then burn the refill until $R$.
+- **Next cycle** ($G_{\text{later}}$): the same from $R$ with the week at $0\%$, as long as the credit outlives $R$; $0$ otherwise.
+
+It recommends:
+- **`claim`** when the week is spent ($U_{i,w} \ge 99\%$), or the credit expires within the next active hour, and $G_{\text{cycle}} \ge \max(100 / K_m,\ 0.5\, G_{\text{later}})$.
+- **`advance`** when that condition on $G_{\text{cycle}}$ holds but the week is not spent yet: claim once it runs out.
+- **`hold`** otherwise, showing $G_{\text{cycle}}$ against $G_{\text{later}}$.
+
+When $G_{\text{later}} < 100 / K_m$, the current cycle is the credit's last chance and the provider is fast-tracked.
+
+### 2.3 Desynchronization Algorithm
 1. **Collision Detection**: Identifies expiring credits across distinct providers separated by $< 7$ days within a 16-day window.
 2. **Advance Leader Selection**:
-   - Compares weekly progress and credit counts.
-   - Designates the leader (e.g. Claude) to **Advance**: burn its remaining weekly quota to $100\%$ in half the time ($\approx 3.5\text{d} / 45\text{h}$ active time) to trigger and claim its reset credit mid-cycle.
-   - Designates the secondary provider (e.g. Codex) to **Defer**: reserve its reset credit for the following week.
-3. **Optimal Claim Window**:
-   - When any credit-eligible provider reaches $U_{i,w} \ge 100\%$ (or $95\%$), the engine generates a prominent `⭐ Claim Reset` action card with a one-click dashboard link (`xdg-open`) to claim fresh quota immediately.
+   - Compares reserve scarcity ($1 / \text{available}$) and cycle progress (or proximity to a fresh post-renewal cycle) without heuristic magic numbers.
+   - Designates the leader (e.g. Claude) to **Advance**: burn its remaining weekly quota early ($\approx 3.5\text{d} / 45\text{h}$ active time) and claim its reset credit mid-cycle. When its current cycle is too short for the claim to pay, the advance starts from its next renewal and the current cycle is not fast-tracked.
+   - Designates the secondary provider (e.g. Codex) to **Defer**: keep its reset credit for its last cycle before expiry.
+3. **Claim Window**:
+   - When a provider's advice is `claim`, the engine generates a prominent `⭐ Claim Reset` action card with the quota it buys back and a one-click dashboard link (`xdg-open`). Only the earliest-expiring credit of a provider is marked to claim.
 
 ---
 

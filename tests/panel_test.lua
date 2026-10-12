@@ -234,4 +234,46 @@ assert(has(labels(calibratedTree), "~6s/w"), "calibrated ratios must also displa
 assert(hasTooltip(calibratedTree, "Gearing: ~6 full 5h sessions per week (1 session burns ~16% weekly quota · calibrated from observed usage)"),
     "calibration must retain 6.2 internally: rounding it to 6 would incorrectly display 17% weekly burn")
 
+-- Reset credits: no claim right before the weekly renewal, a claim once a spent week has days left.
+local function isoIn(seconds) return os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + math.floor(seconds)) end
+local function mentions(list, needle)
+    for _, value in ipairs(list) do if value:find(needle, 1, true) then return true end end
+    return false
+end
+local function creditEntry(id, name, weekly, renewHours, credits)
+    local list, lines = {}, {}
+    for i, hours in ipairs(credits) do
+        list[i] = { title = "Reset " .. i, expires_at = isoIn(hours * 3600) }
+        lines[i] = "Reset " .. i .. " · expires in " .. math.floor(hours / 24) .. "d"
+    end
+    return {
+        id = id, display_name = name, status = "ready",
+        metrics = {
+            { label = "Session", percent = 19, window_secs = 18000, reset_at = isoIn(4.7 * 3600) },
+            { label = "Weekly", percent = weekly, window_secs = 604800, reset_at = isoIn(renewHours * 3600) },
+        },
+        reset_credits = { available = #credits, credits = list },
+        sections = { { type = "block", label = "Reset credits", body = lines } },
+    }
+end
+local calendarConfig = { schedule_aware_triage = false }
+
+-- Claude at 97% renewing in 5h, colliding with Codex credits: hold, advance from the renewal
+local nearRenewalReport = { entries = {
+    creditEntry("anthropic", "Claude", 97, 5.2, { 236 }),
+    creditEntry("openai", "Codex", 15, 132, { 238, 405, 600 }),
+} }
+local holdLabels = labels(loadPanel(nearRenewalReport, nil, calendarConfig))
+assert(not has(holdLabels, "Optimal Reset Window!") and not has(holdLabels, "CLAIM NOW") and not has(holdLabels, "Claim Reset"),
+    "a reset 5h before the weekly renewal must not be recommended")
+assert(not mentions(holdLabels, "Advance reset:"), "no fast-track when the week ends in 5h")
+assert(mentions(holdLabels, "1. Advance Claude after its renewal in 5h"), "the advance must start from the renewal")
+assert(mentions(holdLabels, "Keep the reset: renews in 5h"), "the Claude credit must say why it is kept")
+
+-- A spent week with four days left: claim now
+local spentLabels = labels(loadPanel({ entries = { creditEntry("anthropic", "Claude", 100, 96, { 236 }) } }, nil, calendarConfig))
+assert(has(spentLabels, "Optimal Reset Window!") and has(spentLabels, "CLAIM NOW") and has(spentLabels, "Claim Reset"),
+    "a spent week with days left must recommend the claim")
+assert(mentions(spentLabels, "claim now: ~100% of a week back"), "the claim must state what it buys back")
+
 io.write("ok: panel rendering, typography, and rounded session estimates with precise calibration\n")

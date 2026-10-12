@@ -360,12 +360,17 @@ local mockCandidates = {
     },
 }
 
-local plan, stats = shared.analyzeResetCredits(mockCandidates)
+-- Calendar hours keep the claim arithmetic independent of the time of day the test runs at
+local calendarHours = { scheduleAware = false }
+local plan, stats = shared.analyzeResetCredits(mockCandidates, os.time(), calendarHours)
 assert(plan.hasCollision == true, "collision must be detected between Claude and Codex expiring in ~11.7d")
 assert(plan.advanceProviderId == "anthropic", "claude must be chosen to advance due to higher weekly progress and single credit constraint")
 assert(plan.deferProviderId == "openai", "codex must be chosen to defer")
+assert(plan.advanceNow == true and plan.fastTrack["anthropic"] == true,
+    "claude has 50h left to burn 26% and still use the refill, so it advances this cycle")
+assert(stats["openai"].advice.status == "hold", "the deferred credit waits for a later cycle")
 
--- Verify stagger bonus elevates advance provider score
+-- Verify stagger pacing elevates advance provider score
 local claudeItem = {
     providerId = "anthropic",
     entry = mockCandidates[1],
@@ -377,21 +382,70 @@ local staggeredClaudeScore = shared.calculateModelTriageScore(claudeItem, plan)
 assert(staggeredClaudeScore > normalClaudeScore,
     string.format("staggered score (%f) must exceed normal score (%f) to accelerate mid-cycle burn", staggeredClaudeScore, normalClaudeScore))
 
--- Verify canClaimNow triggers when weekly is >= 95%
-local exhaustedClaudeCandidate = {
-    id = "anthropic",
-    display_name = "Claude",
-    metrics = {
-        { label = "Weekly (7d)", percent = 100, reset_at = isoIn(20 * 3600), window_secs = 604800 },
-    },
-    reset_credits = {
-        available = 1,
-        credits = { { title = "Launch reset", expires_at = isoIn(5 * 86400) } },
+-- A claim is only worth it with enough active hours left before the natural renewal
+local function creditCandidate(weeklyPct, renewHours, expiryHours)
+    return {
+        id = "anthropic",
+        display_name = "Claude",
+        metrics = {
+            { label = "Weekly (7d)", percent = weeklyPct, reset_at = isoIn(renewHours * 3600), window_secs = 604800 },
+        },
+        reset_credits = {
+            available = 1,
+            credits = { { title = "Launch reset", expires_at = isoIn(expiryHours * 3600) } },
+        },
+    }
+end
+local function adviseFor(weeklyPct, renewHours, expiryHours)
+    local p, st = shared.analyzeResetCredits({ creditCandidate(weeklyPct, renewHours, expiryHours) }, os.time(), calendarHours)
+    return st["anthropic"], p
+end
+
+-- 97% with the renewal 5h away: a claim buys back one session at most, the credit is worth a full week next cycle
+local nearRenewal, nearPlan = adviseFor(97, 5, 240)
+assert(nearRenewal.advice.status == "hold", "a reset right before the weekly renewal must be held, got " .. nearRenewal.advice.status)
+assert(nearRenewal.canClaimNow == false and nearPlan.optimalClaimProviders["anthropic"] == nil,
+    "no claim may be flagged 5h before the weekly renewal")
+assert(nearPlan.fastTrack["anthropic"] == nil, "no fast-track when the cycle ends before a claim pays off")
+assert(nearRenewal.advice.laterGain > 90 and nearRenewal.advice.cycleGain < 15,
+    string.format("later gain %.1f must dwarf the %.1f available now", nearRenewal.advice.laterGain, nearRenewal.advice.cycleGain))
+local spentNearRenewal = adviseFor(100, 5, 240)
+assert(spentNearRenewal.advice.status == "hold", "even a spent week keeps the reset when the renewal is 5h away")
+
+-- Spent with four days left: the refill can be burnt in full before the renewal
+local spentEarly, spentPlan = adviseFor(100, 96, 240)
+assert(spentEarly.advice.status == "claim" and spentEarly.canClaimNow == true, "a week spent with 4 days left must claim")
+assert(spentPlan.optimalClaimProviders["anthropic"] == true, "plan must register anthropic in optimalClaimProviders")
+
+-- Spent and the credit expires before the renewal: any gain beats losing it
+local expiring = adviseFor(100, 20, 10)
+assert(expiring.advice.status == "claim", "a credit that dies before the renewal must be claimed while the week is spent")
+
+-- Not spent yet with time to spare: claim once the week runs out, not before
+local midWeek, midPlan = adviseFor(60, 96, 216)
+assert(midWeek.advice.status == "advance" and midWeek.canClaimNow == false, "a 60% week must not claim yet")
+assert(midPlan.fastTrack["anthropic"] == nil, "without a collision the next cycle still pays, so no fast-track")
+
+-- The credit expires before the renewal: this cycle is its last chance, so it is fast-tracked
+local lastChance, lastPlan = adviseFor(60, 96, 84)
+assert(lastChance.advice.status == "advance" and lastChance.advice.lastChance == true, "a credit expiring this cycle is a last chance")
+assert(lastPlan.fastTrack["anthropic"] == true, "the last payable cycle must be fast-tracked")
+
+-- Only the next credit to spend carries the claim badge and the advice
+local multiCredit = creditCandidate(100, 96, 240)
+multiCredit.reset_credits = {
+    available = 2,
+    credits = {
+        { title = "First reset", expires_at = isoIn(240 * 3600) },
+        { title = "Second reset", expires_at = isoIn(400 * 3600) },
     },
 }
-local planClaim, statsClaim = shared.analyzeResetCredits({ exhaustedClaudeCandidate })
-assert(statsClaim["anthropic"].canClaimNow == true, "provider at 100% weekly with available credit must flag canClaimNow")
-assert(planClaim.optimalClaimProviders["anthropic"] == true, "plan must register anthropic in optimalClaimProviders")
+multiCredit.sections = { { type = "block", label = "Reset credits", body = { "First reset · expires in 10d", "Second reset · expires in 16d" } } }
+local multiPlan = shared.analyzeResetCredits({ multiCredit }, os.time(), calendarHours)
+local multiCards = shared.collectResetCredits({ multiCredit }, multiPlan)
+assert(#multiCards == 2, "both credits are listed")
+assert(multiCards[1].role == "claim" and multiCards[1].advice ~= nil, "the earliest credit is the one to claim")
+assert(multiCards[2].role == nil and multiCards[2].advice == nil, "later credits stay unclaimed")
 
 -- 6. Schedule-aware active working hours calculation
 local cfg = {
@@ -586,6 +640,8 @@ local stagger = { hasCollision = true, advanceProviderId = "anthropic" }
 local geminiSprintScore = shared.calculateModelTriageScore(imminentGemini, stagger, os.time(), cfg, true)
 local claudeSprintScore = shared.calculateModelTriageScore(distantClaude, stagger, os.time(), cfg, true)
 local codexSprintScore = shared.calculateModelTriageScore(distantCodex, stagger, os.time(), cfg, true)
+assert(geminiSprintScore > claudeSprintScore and geminiSprintScore > codexSprintScore,
+    string.format("Gemini with imminent reset in ~1h (score %.1f) must outrank Claude (%.1f) and Codex (%.1f)", geminiSprintScore, claudeSprintScore, codexSprintScore))
 -- 11. Typography scaling & preset proportionality test:
 local tDefault = shared.getTypography()
 assert(tDefault.factor == 1.00, "Default typography factor must be 1.00")
