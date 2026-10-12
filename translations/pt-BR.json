@@ -14,6 +14,21 @@
         "pace": "Corra contra o relógio"
       }
     },
+    "bar_font_scale": {
+      "description": "Ajusta os tamanhos de fonte e ícones para esta cápsula da barra.",
+      "label": "Tamanho da fonte da cápsula"
+    },
+    "font_scale": {
+      "description": "Ajusta os tamanhos de fonte e ícones proporcionalmente no painel e na barra.",
+      "label": "Tamanho da fonte",
+      "option": {
+        "compact": "Compacto (85%)",
+        "huge": "Muito grande (130%)",
+        "inherit": "Herdar (das configurações do plugin)",
+        "large": "Grande (115%)",
+        "normal": "Normal (100%)"
+      }
+    },
     "glyph_position": {
       "description": "Em qual lado da leitura o ícone está posicionado.",
       "label": "Posição do ícone",
@@ -55,23 +70,23 @@
       "label": "Pausa diária para refeições (horas)"
     },
     "gearing_claude_oss": {
-      "description": "Número de sessões cheias de 5h equivalentes a 100% da cota semanal para Claude & GPT OSS (padrão 2.5, onde 1 sessão consome ~40% da semana).",
+      "description": "Estimativa de sessões completas de 5h por cota semanal para Claude & GPT OSS. O painel mostra números inteiros; os cálculos e a calibração automática mantêm a precisão decimal.",
       "label": "Razão de escalonamento: Claude & GPT OSS (sessões/sem)"
     },
     "gearing_gemini": {
-      "description": "Número de sessões cheias de 5h equivalentes a 100% da cota semanal para Gemini (padrão 8.0, onde 1 sessão consome ~12.5% da semana).",
+      "description": "Estimativa de sessões completas de 5h por cota semanal para Gemini. O painel mostra números inteiros; os cálculos e a calibração automática mantêm a precisão decimal.",
       "label": "Razão de escalonamento: Gemini (sessões/sem)"
     },
     "gearing_anthropic": {
-      "description": "Número de sessões cheias de 5h equivalentes a 100% da cota semanal para Claude Pro (padrão 7.0, onde 1 sessão consome ~14.3% da semana).",
+      "description": "Estimativa de sessões completas de 5h por cota semanal para Claude Pro. O painel mostra números inteiros; os cálculos e a calibração automática mantêm a precisão decimal.",
       "label": "Razão de escalonamento: Claude Pro (sessões/sem)"
     },
     "gearing_openai": {
-      "description": "Número de sessões cheias de 5h equivalentes a 100% da cota semanal para OpenAI / Codex (padrão 16.0, onde 1 sessão consome ~6.25% da semana).",
+      "description": "Estimativa de sessões completas de 5h por cota semanal para OpenAI / Codex. O painel mostra números inteiros; os cálculos e a calibração automática mantêm a precisão decimal.",
       "label": "Razão de escalonamento: Codex / OpenAI (sessões/sem)"
     },
     "gearing_default": {
-      "description": "Número padrão de sessões cheias de 5h equivalentes a 100% da cota semanal para outros modelos (padrão 10.0).",
+      "description": "Estimativa de sessões completas de 5h por cota semanal para outros modelos. O painel mostra números inteiros; os cálculos e a calibração automática mantêm a precisão decimal.",
       "label": "Razão de escalonamento: Padrão (sessões/sem)"
     },
     "show_glyph": {

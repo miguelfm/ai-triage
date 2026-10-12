@@ -26,6 +26,15 @@ local modelHeadlines, isCritical, dualMetrics = shared.modelHeadlines, shared.is
 local pace, SEVERITY_RANK = shared.pace, shared.SEVERITY_RANK
 local NO_FAILURE, asFailure = shared.NO_FAILURE, shared.asFailure
 local unavailable, warning = shared.unavailable, shared.warning
+local getTypography = shared.getTypography
+
+local function getBarTypography()
+    local barSetting = noctalia.getConfig("bar_font_scale")
+    if barSetting == nil or barSetting == "" or barSetting == "inherit" then
+        barSetting = noctalia.getConfig("font_scale")
+    end
+    return getTypography(barSetting)
+end
 
 local failure = NO_FAILURE
 local scrollOffset = 0
@@ -173,7 +182,7 @@ end
 
 -- Upper and bigger bar (height 6, radius 3): 5h limit (session window)
 -- Lower and thinner bar (height 3, radius 2): weekly limit (7-day rate limit)
-local function bars(mShort, mWeekly, width)
+local function bars(mShort, mWeekly, width, typo)
     if mShort == nil and mWeekly == nil then return nil end
 
     local pShort = mShort and tonumber(mShort.percent)
@@ -183,6 +192,9 @@ local function bars(mShort, mWeekly, width)
 
     local fShort = mShort and metricFill(mShort) or "primary"
     local fWeekly = mWeekly and metricFill(mWeekly) or "primary"
+
+    local factor = typo and typo.factor or 1.0
+    local w = math.floor(width * factor + 0.5)
 
     -- Upper / bigger bar (height 6): 5h limit (or the single available metric)
     local topProgress = pShort ~= nil and pShort or (pWeekly or 0)
@@ -194,7 +206,7 @@ local function bars(mShort, mWeekly, width)
             fill = topFill,
             track = "on_surface/0.14",
             radius = 3,
-            width = width,
+            width = w,
             height = 6,
         }),
     }
@@ -206,7 +218,7 @@ local function bars(mShort, mWeekly, width)
             fill = fWeekly,
             track = "on_surface/0.10",
             radius = 2,
-            width = width,
+            width = w,
             height = 3,
         })
     end
@@ -242,12 +254,14 @@ local function miniGauge(percent, tint)
     })
 end
 
-local function chip(entry, flagged, isVert)
+local function chip(entry, flagged, isVert, typo)
+    local fs = typo and typo.fontSize or function(s) return s end
+    local gs = typo and typo.glyphSize or function(s) return s end
     if shared.readFailure(entry) then
-        local nodes = { ui.label({ text = "—", fontSize = 11, color = "on_surface_variant" }) }
+        local nodes = { ui.label({ text = "—", fontSize = fs(11), color = "on_surface_variant" }) }
         if showGlyph then
             table.insert(nodes, glyphAfter and #nodes + 1 or 1,
-                ui.glyph({ name = providerGlyph(entry.id), size = 14, color = "error" }))
+                ui.glyph({ name = providerGlyph(entry.id), size = gs(14), color = "error" }))
         end
         if isVert then
             return ui.column({ gap = 2, align = "center" }, nodes)
@@ -286,7 +300,7 @@ local function chip(entry, flagged, isVert)
     local hasSubmodels = #submodels > 0
 
     local glyph = (showGlyph and not hasSubmodels)
-        and ui.glyph({ name = providerGlyph(entry.id), size = 14,
+        and ui.glyph({ name = providerGlyph(entry.id), size = gs(14),
                        color = flagged and "error" or "on_surface" }) or nil
     local pct = nil
     if showValue or hasSubmodels then
@@ -302,14 +316,14 @@ local function chip(entry, flagged, isVert)
                 local rowChildren = {}
                 local modelGlyph = showGlyph and ui.glyph({
                         name = item.glyph or providerGlyph(entry.id),
-                        size = 13,
+                        size = gs(13),
                         color = "on_surface",
                     }) or nil
                 if modelGlyph and not glyphAfter then rowChildren[#rowChildren + 1] = modelGlyph end
 
                 local mMetrics = type(item.metrics) == "table" and item.metrics or { item.metric }
                 local mShort, mWeekly = dualMetrics(mMetrics)
-                local barNode = bars(mShort, mWeekly, 22)
+                local barNode = bars(mShort, mWeekly, 22, typo)
 
                 if visualization == "gauge" and not isVert and not glyphAfter and barNode ~= nil then
                     rowChildren[#rowChildren + 1] = barNode
@@ -317,7 +331,7 @@ local function chip(entry, flagged, isVert)
                 if showValue then
                     rowChildren[#rowChildren + 1] = ui.label({
                         text = string.format("%d%%", mPct),
-                        fontSize = 11,
+                        fontSize = fs(11),
                         fontWeight = "semibold",
                         color = mTint,
                         maxLines = 1,
@@ -331,7 +345,7 @@ local function chip(entry, flagged, isVert)
                     if left ~= "" then
                         rowChildren[#rowChildren + 1] = ui.label({
                             text = left,
-                            fontSize = 10,
+                            fontSize = fs(10),
                             color = "on_surface_variant",
                             maxLines = 1,
                         })
@@ -343,7 +357,7 @@ local function chip(entry, flagged, isVert)
                         and ui.box({ width = 10, height = 1, fill = "on_surface_variant", opacity = 0.25 })
                         or ui.label({
                             text = "·",
-                            fontSize = 11,
+                            fontSize = fs(11),
                             color = "on_surface_variant",
                         })
                 end
@@ -359,7 +373,7 @@ local function chip(entry, flagged, isVert)
         else
             pct = ui.label({
                 text = text,
-                fontSize = 11,
+                fontSize = fs(11),
                 fontWeight = "semibold",
                 color = tint,
                 maxLines = 1,
@@ -378,7 +392,7 @@ local function chip(entry, flagged, isVert)
         return ui.column({ gap = 2, align = "center" }, vertNodes)
     end
 
-    local name = showName and ui.label({ text = shortName(entry), fontSize = 11,
+    local name = showName and ui.label({ text = shortName(entry), fontSize = fs(11),
                                          color = "on_surface_variant", maxLines = 1 }) or nil
 
     local nodes = {}
@@ -388,9 +402,9 @@ local function chip(entry, flagged, isVert)
     add(name)
     if visualization == "gauge" and not hasSubmodels then
         local mShort, mWeekly = dualMetrics(entry.metrics)
-        local barNode = bars(mShort, mWeekly, 32)
+        local barNode = bars(mShort, mWeekly, 32, typo)
         if barNode == nil and percent ~= nil then
-            barNode = bars({ percent = percent, severity = metric and metric.severity }, nil, 32)
+            barNode = bars({ percent = percent, severity = metric and metric.severity }, nil, 32, typo)
         end
         add(barNode)
     end
@@ -400,7 +414,7 @@ local function chip(entry, flagged, isVert)
     if (extras == "countdown" or extras == "both") and not hasSubmodels then
         local left = fixedCountdown(metric)
         if left ~= "" then
-            add(ui.label({ text = left, fontSize = 10, color = "on_surface_variant", maxLines = 1 }))
+            add(ui.label({ text = left, fontSize = fs(10), color = "on_surface_variant", maxLines = 1 }))
         end
     end
     if extras == "pace" or extras == "both" then
@@ -409,14 +423,14 @@ local function chip(entry, flagged, isVert)
             local ahead = word == "ahead"
             local role = ahead and "secondary" or "on_surface_variant"
             add(ui.row({ gap = 0, align = "center" }, {
-                ui.glyph({ name = ahead and "arrow-up" or "arrow-down", size = 10, color = role }),
-                ui.label({ text = tostring(points), fontSize = 10, color = role, maxLines = 1 }),
+                ui.glyph({ name = ahead and "arrow-up" or "arrow-down", size = gs(10), color = role }),
+                ui.label({ text = tostring(points), fontSize = fs(10), color = role, maxLines = 1 }),
             }))
         end
     end
 
     if entry.stale == true then
-        add(ui.glyph({ name = "clock-exclamation", size = 11, color = "secondary" }))
+        add(ui.glyph({ name = "clock-exclamation", size = gs(11), color = "secondary" }))
     end
     return ui.row({ gap = 5, align = "center" }, nodes)
 end
@@ -544,6 +558,9 @@ local function render()
     -- until a good report replaces them. Erasing them blanked the capsule over a
     -- transient spawn failure.
     local flagged = failure.code ~= "" and #picked > 0
+    local typo = getBarTypography()
+    local fs = typo.fontSize
+    local gs = typo.glyphSize
 
     local children = {}
     for _, entry in ipairs(picked) do
@@ -553,20 +570,20 @@ local function render()
         if #children > 0 then
             children[#children + 1] = isVert
                 and ui.box({ width = 12, height = 1, fill = "on_surface_variant", opacity = 0.3 })
-                or ui.label({ text = "·", fontSize = 11, color = "on_surface_variant" })
+                or ui.label({ text = "·", fontSize = fs(11), color = "on_surface_variant" })
         end
-        children[#children + 1] = chip(entry, flagged, isVert)
+        children[#children + 1] = chip(entry, flagged, isVert, typo)
     end
 
     if #children == 0 then
         -- One glyph, coloured by the state. A second icon beside it would read as
         -- a second problem.
         children[1] = ui.glyph({
-            name = "scale", size = 14,
+            name = "scale", size = gs(14),
             color = failure.code ~= "" and "error" or "on_surface_variant",
         })
     elseif hidden > 0 then
-        children[#children + 1] = ui.label({ text = "+" .. tostring(hidden), fontSize = 10,
+        children[#children + 1] = ui.label({ text = "+" .. tostring(hidden), fontSize = fs(10),
                                              color = "on_surface_variant", maxLines = 1 })
     end
 

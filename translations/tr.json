@@ -1,5 +1,20 @@
 {
   "settings": {
+    "bar_font_scale": {
+      "description": "Bu özel çubuk kapsülü için yazı tipi ve simge boyutlarını ayarlar.",
+      "label": "Kapsül yazı tipi boyutu"
+    },
+    "font_scale": {
+      "description": "Panel ve çubuk genelinde yazı tipi ve simge boyutlarını orantılı olarak ayarlar.",
+      "label": "Yazı tipi boyutu",
+      "option": {
+        "compact": "Kompakt (%85)",
+        "huge": "Çok büyük (%130)",
+        "inherit": "Devral (eklenti ayarlarından)",
+        "large": "Büyük (%115)",
+        "normal": "Normal (%100)"
+      }
+    },
     "style": {
       "description": "Bu kapsülün çubukta nasıl görüneceği.",
       "label": "Stil",

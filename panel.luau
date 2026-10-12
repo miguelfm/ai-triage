@@ -25,6 +25,7 @@ local kickstartTarget = shared.kickstartTarget
 local collectModelItems = shared.collectModelItems
 local collectResetCredits = shared.collectResetCredits
 local providerDashboard = shared.providerDashboard
+local getTypography = shared.getTypography
 
 local failure = NO_FAILURE
 
@@ -68,19 +69,21 @@ end
 
 -- ── Error Block ───────────────────────────────────────────────────────────────
 -- The CLI's own words come last and smallest, where a bug report can quote them.
-local function errorBlock()
+local function errorBlock(typo)
+    local fs = typo and typo.fontSize or function(s) return s end
+    local gs = typo and typo.glyphSize or function(s) return s end
     local key = "ui.error." .. failure.code
     local children = {
         ui.row({ gap = 6, align = "center" }, {
-            ui.glyph({ name = "alert-circle", size = 18, color = "error" }),
-            ui.label({ text = noctalia.tr(key), fontSize = 12, fontWeight = "bold", color = "error" }),
+            ui.glyph({ name = "alert-circle", size = gs(18), color = "error" }),
+            ui.label({ text = noctalia.tr(key), fontSize = fs(12), fontWeight = "bold", color = "error" }),
         }),
-        ui.label({ text = noctalia.tr(key .. "_hint"), fontSize = 11, color = "on_surface_variant" }),
+        ui.label({ text = noctalia.tr(key .. "_hint"), fontSize = fs(11), color = "on_surface_variant" }),
     }
 
     if failure.detail ~= "" then
         children[#children + 1] = ui.label({
-            text = failure.detail, fontSize = 11, color = "on_surface_variant", maxLines = 3,
+            text = failure.detail, fontSize = fs(11), color = "on_surface_variant", maxLines = 3,
         })
     end
 
@@ -96,7 +99,7 @@ local function errorBlock()
     if failure.code == "not_installed" then
         children[#children + 1] = ui.label({
             text = "https://github.com/akitaonrails/ai-usagebar",
-            fontSize = 11, color = "on_surface", maxLines = 2,
+            fontSize = fs(11), color = "on_surface", maxLines = 2,
         })
         actions[#actions + 1] = ui.button({
             text = noctalia.tr("ui.install"), glyph = "brand-github",
@@ -278,7 +281,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
         shouldThrottle = true
     elseif isWeekly and gearing <= 3.5 and percent >= 45 and remainingSecs > 172800 then
         shouldThrottle = true
-        throttleSummary = string.format("Conserve · High weekly impact (~%.1f sess/wk, 1 session = ~%d%% week)", gearing, math.floor(oneSessionPct + 0.5))
+        throttleSummary = string.format("Conserve · High weekly impact (~%d sess/wk, 1 session = ~%d%% week)", math.floor(gearing + 0.5), math.floor(oneSessionPct + 0.5))
     end
 
     if shouldThrottle then
@@ -319,7 +322,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
             burnSummary = string.format("Weekly reset soon (~%.1fh active left) · %d%% quota will expire", H_w_active, remainingQuota)
         elseif dutyCycle >= 0.85 and remainingQuota >= 20 and remainingSecs > 0 then
             shouldBurn = true
-            burnSummary = string.format("Session bottleneck: need ~%.1f sessions for %d%% weekly quota (~%.1fs/w)", sessionsNeeded, remainingQuota, gearing)
+            burnSummary = string.format("Session bottleneck: need ~%d sessions for %d%% weekly quota (~%ds/w)", math.floor(sessionsNeeded + 0.5), remainingQuota, math.floor(gearing + 0.5))
         elseif remainingSecs <= 172800 and remainingQuota >= 25 and remainingSecs > 0 then
             shouldBurn = true
         elseif remainingSecs <= 259200 and remainingQuota >= 35 and remainingSecs > 0 then
@@ -415,31 +418,35 @@ end
 
 -- ── Card Renderers ────────────────────────────────────────────────────────────
 
-local function renderMetricCard(item, metric, windowLabel, staggerPlan)
+local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
+    local fs = typo and typo.fontSize or function(s) return s end
+    local gs = typo and typo.glyphSize or function(s) return s end
+    local factor = typo and typo.factor or 1.0
     local isWeekly = windowLabel == "7d"
     local isLongName = #item.name > 12
 
+    local iconBoxSize = math.floor(24 * factor + 0.5)
     local titleChildren = {
         ui.row({
-            width = 24, height = 24, radius = 6,
+            width = iconBoxSize, height = iconBoxSize, radius = 6,
             fill = "primary/0.14", align = "center", justify = "center",
         }, {
-            ui.glyph({ name = item.glyph, size = 14, color = "primary" }),
+            ui.glyph({ name = item.glyph, size = gs(14), color = "primary" }),
         }),
         ui.label({
             text = item.name,
-            fontSize = isLongName and 14 or 15,
+            fontSize = isLongName and fs(14) or fs(15),
             fontWeight = "bold",
             color = "on_surface",
             maxLines = 1,
-            maxWidth = 165,
+            maxWidth = math.floor(165 * factor + 0.5),
         }),
     }
     if item.badge then
         titleChildren[#titleChildren + 1] = ui.row({
             paddingH = 4, paddingV = 1, radius = 4, fill = "primary/0.10",
         }, {
-            ui.label({ text = item.badge, fontSize = 10, fontWeight = "medium", color = "primary" }),
+            ui.label({ text = item.badge, fontSize = fs(10), fontWeight = "medium", color = "primary" }),
         })
     end
 
@@ -458,9 +465,9 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 ui.row({ gap = 4, align = "center" }, titleChildren),
                 ui.spacer({ flexGrow = 1 }),
                 unavail and ui.row({ gap = 4, align = "center", paddingH = 6, paddingV = 2, radius = 5, fill = "error/0.12" }, {
-                    ui.glyph({ name = "alert-circle", size = 12, color = "error" }),
-                    ui.label({ text = noctalia.tr("ui.unavailable"), fontSize = 12, fontWeight = "medium", color = "error" }),
-                }) or ui.label({ text = "—", fontSize = 14, color = "on_surface_variant" }),
+                    ui.glyph({ name = "alert-circle", size = gs(12), color = "error" }),
+                    ui.label({ text = noctalia.tr("ui.unavailable"), fontSize = fs(12), fontWeight = "medium", color = "error" }),
+                }) or ui.label({ text = "—", fontSize = fs(14), color = "on_surface_variant" }),
             }),
             ui.column({ gap = 1, align = "stretch" }, {
                 ui.progress({ progress = 0, fill = "on_surface/0.10", track = "on_surface/0.05", radius = 4, height = 8 }),
@@ -468,8 +475,8 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
             }),
             ui.row({ gap = 8, align = "center", justify = "center" }, {
                 ui.row({ gap = 5, align = "center", paddingH = 8, paddingV = 2, radius = 5, fill = "on_surface/0.06" }, {
-                    ui.glyph({ name = "slash", size = 12, color = "on_surface_variant" }),
-                    ui.label({ text = "Offline", fontSize = 12, color = "on_surface_variant" }),
+                    ui.glyph({ name = "slash", size = gs(12), color = "on_surface_variant" }),
+                    ui.label({ text = "Offline", fontSize = fs(12), color = "on_surface_variant" }),
                 }),
             }),
         })
@@ -507,8 +514,8 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
             fill = triage.bg, border = triage.border, borderWidth = 1,
             tooltip = triage.summary,
         }, {
-            ui.glyph({ name = triage.glyph, size = 10, color = triage.color }),
-            ui.label({ text = triage.label, fontSize = 10, fontWeight = "bold", color = triage.color }),
+            ui.glyph({ name = triage.glyph, size = gs(10), color = triage.color }),
+            ui.label({ text = triage.label, fontSize = fs(10), fontWeight = "bold", color = triage.color }),
         })
     end
 
@@ -519,10 +526,10 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
             gap = 3, align = "center",
             paddingH = 3, paddingV = 1,
         }, {
-            ui.glyph({ name = "clock", size = 12, color = fgColor }),
+            ui.glyph({ name = "clock", size = gs(12), color = fgColor }),
             ui.label({
                 text = leftDuration,
-                fontSize = 13,
+                fontSize = fs(13),
                 fontWeight = "medium",
                 color = fgColor,
                 maxLines = 1,
@@ -534,7 +541,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
         paddingH = 6, paddingV = 2, radius = 5, align = "center", justify = "center",
         fill = tint .. "/0.15",
     }, {
-        ui.label({ text = string.format("%d%%", percent), fontSize = 15,
+        ui.label({ text = string.format("%d%%", percent), fontSize = fs(15),
                    fontWeight = "bold", color = tint, textAlign = "center" }),
     })
 
@@ -642,10 +649,10 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
             fill = "on_surface/0.08",
             tooltip = resetTooltip or (isWeekly and "Weekly quota reset schedule" or "5h rolling window reset time"),
         }, {
-            ui.glyph({ name = "clock", size = 13, color = "on_surface_variant" }),
+            ui.glyph({ name = "clock", size = gs(13), color = "on_surface_variant" }),
             ui.label({
                 text = resetTimeText ~= "" and resetTimeText or "--:--",
-                fontSize = 13,
+                fontSize = fs(13),
                 fontWeight = "medium",
                 color = "on_surface",
                 textAlign = "center",
@@ -664,10 +671,10 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
             borderWidth = 1,
             tooltip = "Session not started · Rolling 5h timer begins on first prompt",
         }, {
-            ui.glyph({ name = "clock", size = 13, color = "error" }),
+            ui.glyph({ name = "clock", size = gs(13), color = "error" }),
             ui.label({
                 text = "--:--",
-                fontSize = 13,
+                fontSize = fs(13),
                 fontWeight = "bold",
                 color = "error",
                 textAlign = "center",
@@ -681,8 +688,8 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
         local gearing, isCalibrated = getModelGearing(item and (item.providerId or (item.entry and item.entry.id)), item and item.name, item)
         if gearing then
             local oneSessionPct = math.floor((100.0 / gearing) + 0.5)
-            local tipText = string.format("Gearing: ~%.1f 5h sessions per week (1 session burns ~%d%% weekly quota%s)",
-                gearing, oneSessionPct, isCalibrated and " · calibrated from observed usage" or "")
+            local tipText = string.format("Gearing: ~%d full 5h sessions per week (1 session burns ~%d%% weekly quota%s)",
+                math.floor(gearing + 0.5), oneSessionPct, isCalibrated and " · calibrated from observed usage" or "")
             bottomRowElements[#bottomRowElements + 1] = ui.row({
                 gap = 4, align = "center", justify = "center",
                 paddingH = 7,
@@ -691,10 +698,10 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 fill = isCalibrated and "primary/0.14" or "secondary/0.10",
                 tooltip = tipText,
             }, {
-                ui.glyph({ name = isCalibrated and "sparkles" or "gauge", size = 12, color = isCalibrated and "primary" or "secondary" }),
+                ui.glyph({ name = isCalibrated and "sparkles" or "gauge", size = gs(12), color = isCalibrated and "primary" or "secondary" }),
                 ui.label({
-                    text = string.format("~%.1fs/w", gearing),
-                    fontSize = 12,
+                    text = string.format("~%ds/w", math.floor(gearing + 0.5)),
+                    fontSize = fs(12),
                     fontWeight = "medium",
                     color = isCalibrated and "primary" or "secondary",
                 }),
@@ -732,10 +739,10 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 borderWidth = 1,
                 tooltip = "Weekly quota is 100% exhausted. Sessions cannot be started until weekly reset.",
             }, {
-                ui.glyph({ name = "alert-circle", size = 12, color = "error" }),
+                ui.glyph({ name = "alert-circle", size = gs(12), color = "error" }),
                 ui.label({
                     text = "7d exhausted",
-                    fontSize = 12,
+                    fontSize = fs(12),
                     fontWeight = "medium",
                     color = "error",
                 }),
@@ -749,10 +756,10 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 fill = "primary/0.10",
                 tooltip = "5-hour rolling session window currently active",
             }, {
-                ui.glyph({ name = "bolt", size = 12, color = "primary" }),
+                ui.glyph({ name = "bolt", size = gs(12), color = "primary" }),
                 ui.label({
                     text = "5h rolling",
-                    fontSize = 12,
+                    fontSize = fs(12),
                     fontWeight = "medium",
                     color = "primary",
                 }),
@@ -766,10 +773,10 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
                 fill = "on_surface/0.08",
                 tooltip = "Session window not currently active",
             }, {
-                ui.glyph({ name = "clock-pause", size = 12, color = "on_surface_variant" }),
+                ui.glyph({ name = "clock-pause", size = gs(12), color = "on_surface_variant" }),
                 ui.label({
                     text = "Unstarted",
-                    fontSize = 12,
+                    fontSize = fs(12),
                     fontWeight = "medium",
                     color = "on_surface_variant",
                 }),
@@ -781,13 +788,13 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan)
 
     if showValue then
         body[#body + 1] = ui.row({ align = "center", justify = "center" }, {
-            ui.label({ text = value, fontSize = 14, color = "on_surface_variant", maxLines = 1 }),
+            ui.label({ text = value, fontSize = fs(14), color = "on_surface_variant", maxLines = 1 }),
         })
     end
 
     local rest = plainDetail(metric.detail)
     if rest ~= "" then
-        body[#body + 1] = ui.label({ text = rest, fontSize = 13, color = "on_surface_variant" })
+        body[#body + 1] = ui.label({ text = rest, fontSize = fs(13), color = "on_surface_variant" })
     end
 
     return ui.column({
@@ -823,7 +830,10 @@ local function creditCountdownColor(credit)
     end
 end
 
-local function renderCreditCard(credit)
+local function renderCreditCard(credit, typo)
+    local fs = typo and typo.fontSize or function(s) return s end
+    local gs = typo and typo.glyphSize or function(s) return s end
+    local factor = typo and typo.factor or 1.0
     local fgColor = creditCountdownColor(credit)
     local roleBadge = nil
     if credit.role == "claim" then
@@ -831,21 +841,21 @@ local function renderCreditCard(credit)
             paddingH = 5, paddingV = 1.5, radius = 4,
             fill = "tertiary/0.20", border = "tertiary/0.50", borderWidth = 1,
         }, {
-            ui.label({ text = "CLAIM NOW", fontSize = 9, fontWeight = "bold", color = "#c084fc" }),
+            ui.label({ text = "CLAIM NOW", fontSize = fs(9), fontWeight = "bold", color = "#c084fc" }),
         })
     elseif credit.role == "advance" then
         roleBadge = ui.row({
             paddingH = 5, paddingV = 1.5, radius = 4,
             fill = "primary/0.20", border = "primary/0.50", borderWidth = 1,
         }, {
-            ui.label({ text = "ADVANCE", fontSize = 9, fontWeight = "bold", color = "#38bdf8" }),
+            ui.label({ text = "ADVANCE", fontSize = fs(9), fontWeight = "bold", color = "#38bdf8" }),
         })
     elseif credit.role == "defer" then
         roleBadge = ui.row({
             paddingH = 5, paddingV = 1.5, radius = 4,
             fill = "outline/0.15", border = "outline/0.30", borderWidth = 1,
         }, {
-            ui.label({ text = "DEFER", fontSize = 9, fontWeight = "medium", color = "on_surface_variant" }),
+            ui.label({ text = "DEFER", fontSize = fs(9), fontWeight = "medium", color = "on_surface_variant" }),
         })
     end
 
@@ -862,16 +872,17 @@ local function renderCreditCard(credit)
         end,
     }) or nil
 
+    local iconBoxSize = math.floor(24 * factor + 0.5)
     local creditRow = {
         ui.row({
-            width = 24, height = 24, radius = 6,
+            width = iconBoxSize, height = iconBoxSize, radius = 6,
             fill = "primary/0.14", align = "center", justify = "center",
         }, {
-            ui.glyph({ name = credit.glyph, size = 14, color = "primary" }),
+            ui.glyph({ name = credit.glyph, size = gs(14), color = "primary" }),
         }),
         ui.label({
             text = credit.providerName,
-            fontSize = 14,
+            fontSize = fs(14),
             fontWeight = "bold",
             color = "on_surface",
             maxLines = 1,
@@ -891,10 +902,10 @@ local function renderCreditCard(credit)
             gap = 5, align = "center",
             paddingH = 2,
         }, {
-            ui.glyph({ name = "clock", size = 13, color = fgColor }),
+            ui.glyph({ name = "clock", size = gs(13), color = fgColor }),
             ui.label({
                 text = credit.expiry,
-                fontSize = 13,
+                fontSize = fs(13),
                 fontWeight = "medium",
                 color = fgColor,
                 maxLines = 1,
@@ -905,7 +916,11 @@ end
 
 -- ── 3-Column Layout ───────────────────────────────────────────────────────────
 
-local function renderColumns(candidates)
+local function renderColumns(candidates, typo)
+    local fs = typo and typo.fontSize or function(s) return s end
+    local gs = typo and typo.glyphSize or function(s) return s end
+    local factor = typo and typo.factor or 1.0
+
     local headerActions = {}
     headerActions[#headerActions + 1] = ui.button({
         glyph = polling and "loader-2" or refreshQueued and "clock" or "refresh",
@@ -945,23 +960,24 @@ local function renderColumns(candidates)
         updatedRow = ui.row({ gap = 4, align = "center", paddingH = 7,
                               paddingV = 3, radius = 6, fill = "on_surface/0.08",
                               tooltip = timeTip }, {
-            ui.glyph({ name = "clock", size = 14, color = "on_surface_variant" }),
+            ui.glyph({ name = "clock", size = gs(14), color = "on_surface_variant" }),
             ui.label({
                 text = noctalia.tr("ui.updated") .. " " .. noctalia.formatTime(noctalia.timeFormat(), latestFetched),
-                fontSize = 14,
+                fontSize = fs(14),
                 color = "on_surface_variant",
             }),
         })
     end
 
+    local titleBoxSize = math.floor(32 * factor + 0.5)
     local topRowChildren = {
         ui.row({
-            width = 32, height = 32, radius = 8,
+            width = titleBoxSize, height = titleBoxSize, radius = 8,
             fill = "primary/0.14", align = "center", justify = "center",
         }, {
-            ui.glyph({ name = "scale", size = 20, color = "primary" }),
+            ui.glyph({ name = "scale", size = gs(20), color = "primary" }),
         }),
-        ui.label({ text = noctalia.tr("ui.title"), fontSize = 19, fontWeight = "bold", color = "on_surface" }),
+        ui.label({ text = noctalia.tr("ui.title"), fontSize = fs(19), fontWeight = "bold", color = "on_surface" }),
     }
     if updatedRow ~= nil then
         topRowChildren[#topRowChildren + 1] = updatedRow
@@ -1000,11 +1016,11 @@ local function renderColumns(candidates)
     local sessionCards = {}
     local weeklyCards = {}
     for _, item in ipairs(modelItems) do
-        local sCard = renderMetricCard(item, item.sessionMetric, "5h", staggerPlan)
+        local sCard = renderMetricCard(item, item.sessionMetric, "5h", staggerPlan, typo)
         if sCard ~= nil then
             sessionCards[#sessionCards + 1] = sCard
         end
-        local wCard = renderMetricCard(item, item.weeklyMetric, "7d", staggerPlan)
+        local wCard = renderMetricCard(item, item.weeklyMetric, "7d", staggerPlan, typo)
         if wCard ~= nil then
             weeklyCards[#weeklyCards + 1] = wCard
         end
@@ -1012,34 +1028,34 @@ local function renderColumns(candidates)
 
     local creditCards = {}
     for _, credit in ipairs(resetCredits) do
-        creditCards[#creditCards + 1] = renderCreditCard(credit)
+        creditCards[#creditCards + 1] = renderCreditCard(credit, typo)
     end
 
     if staggerPlan and staggerPlan.hasCollision then
         local stratCard = ui.column(cardStyle(4, nil, nil, 8), {
             ui.row({ gap = 6, align = "center" }, {
-                ui.glyph({ name = "calendar-clock", size = 15, color = "primary" }),
+                ui.glyph({ name = "calendar-clock", size = gs(15), color = "primary" }),
                 ui.label({
                     text = string.format("Reset Plan (Collision in %.0fd)", staggerPlan.daysUntilExpiry or 12),
-                    fontSize = 13, fontWeight = "bold", color = "primary",
+                    fontSize = fs(13), fontWeight = "bold", color = "primary",
                 }),
             }),
             ui.label({
                 text = string.format("%s & %s expire together (~Oct 22). Staggering strategy:", staggerPlan.advanceName or "Claude", staggerPlan.deferName or "Codex"),
-                fontSize = 11, color = "on_surface_variant",
+                fontSize = fs(11), color = "on_surface_variant",
             }),
             ui.row({ gap = 6, align = "start" }, {
-                ui.glyph({ name = "arrow-right", size = 12, color = "#38bdf8" }),
+                ui.glyph({ name = "arrow-right", size = gs(12), color = "#38bdf8" }),
                 ui.label({
                     text = string.format("1. Advance %s: burn remaining quota to 100%% in ~3.5d and claim reset.", staggerPlan.advanceName or "Claude"),
-                    fontSize = 11, fontWeight = "semibold", color = "on_surface", flexGrow = 1,
+                    fontSize = fs(11), fontWeight = "semibold", color = "on_surface", flexGrow = 1,
                 }),
             }),
             ui.row({ gap = 6, align = "start" }, {
-                ui.glyph({ name = "arrow-right", size = 12, color = "outline" }),
+                ui.glyph({ name = "arrow-right", size = gs(12), color = "outline" }),
                 ui.label({
                     text = string.format("2. Defer %s: reserve reset credit for the following week.", staggerPlan.deferName or "Codex"),
-                    fontSize = 11, color = "on_surface_variant", flexGrow = 1,
+                    fontSize = fs(11), color = "on_surface_variant", flexGrow = 1,
                 }),
             }),
         })
@@ -1053,15 +1069,15 @@ local function renderColumns(candidates)
             local dashUrl = providerDashboard(baseId)
             local claimCardChildren = {
                 ui.row({ gap = 6, align = "center" }, {
-                    ui.glyph({ name = "sparkles", size = 16, color = "#c084fc" }),
+                    ui.glyph({ name = "sparkles", size = gs(16), color = "#c084fc" }),
                     ui.label({
                         text = "Optimal Reset Window!",
-                        fontSize = 13, fontWeight = "bold", color = "#c084fc",
+                        fontSize = fs(13), fontWeight = "bold", color = "#c084fc",
                     }),
                 }),
                 ui.label({
                     text = string.format("%s reached 100%% weekly quota. Claim reset now to double quota!", pName),
-                    fontSize = 11, color = "on_surface",
+                    fontSize = fs(11), color = "on_surface",
                 }),
             }
             if dashUrl ~= nil then
@@ -1084,28 +1100,29 @@ local function renderColumns(candidates)
     if #creditCards == 0 then
         creditCards[#creditCards + 1] = ui.column(cardStyle(6, nil, nil, 10), {
             ui.row({ gap = 8, align = "center" }, {
-                ui.glyph({ name = "info-circle", size = 18, color = "on_surface_variant" }),
-                ui.label({ text = "No pending reset credits", fontSize = 16, color = "on_surface_variant" }),
+                ui.glyph({ name = "info-circle", size = gs(18), color = "on_surface_variant" }),
+                ui.label({ text = "No pending reset credits", fontSize = fs(16), color = "on_surface_variant" }),
             }),
         })
     end
     if #sessionCards == 0 then
         sessionCards[#sessionCards + 1] = ui.column(cardStyle(6, nil, nil, 10), {
             ui.row({ gap = 8, align = "center" }, {
-                ui.glyph({ name = "info-circle", size = 18, color = "on_surface_variant" }),
-                ui.label({ text = "No active session metrics", fontSize = 15, color = "on_surface_variant" }),
+                ui.glyph({ name = "info-circle", size = gs(18), color = "on_surface_variant" }),
+                ui.label({ text = "No active session metrics", fontSize = fs(15), color = "on_surface_variant" }),
             }),
         })
     end
     if #weeklyCards == 0 then
         weeklyCards[#weeklyCards + 1] = ui.column(cardStyle(6, nil, nil, 10), {
             ui.row({ gap = 8, align = "center" }, {
-                ui.glyph({ name = "info-circle", size = 18, color = "on_surface_variant" }),
-                ui.label({ text = "No active weekly metrics", fontSize = 15, color = "on_surface_variant" }),
+                ui.glyph({ name = "info-circle", size = gs(18), color = "on_surface_variant" }),
+                ui.label({ text = "No active weekly metrics", fontSize = fs(15), color = "on_surface_variant" }),
             }),
         })
     end
 
+    local colHeaderBoxSize = math.floor(30 * factor + 0.5)
     local col1 = ui.column({
         key = "col-session",
         gap = 6,
@@ -1116,12 +1133,12 @@ local function renderColumns(candidates)
     }, {
         ui.row({ gap = 8, align = "center", paddingH = 4, paddingV = 2 }, {
             ui.row({
-                width = 30, height = 30, radius = 7,
+                width = colHeaderBoxSize, height = colHeaderBoxSize, radius = 7,
                 fill = "primary/0.14", align = "center", justify = "center",
             }, {
-                ui.glyph({ name = "clock", size = 18, color = "primary" }),
+                ui.glyph({ name = "clock", size = gs(18), color = "primary" }),
             }),
-            ui.label({ text = "Session (5h)", fontSize = 18, fontWeight = "bold", color = "on_surface" }),
+            ui.label({ text = "Session (5h)", fontSize = fs(18), fontWeight = "bold", color = "on_surface" }),
         }),
         ui.separator({ orientation = "horizontal", color = "outline", opacity = 0.16 }),
         ui.scroll({ flexGrow = 1, gap = 6, align = "stretch" }, sessionCards),
@@ -1137,12 +1154,12 @@ local function renderColumns(candidates)
     }, {
         ui.row({ gap = 8, align = "center", paddingH = 4, paddingV = 2 }, {
             ui.row({
-                width = 30, height = 30, radius = 7,
+                width = colHeaderBoxSize, height = colHeaderBoxSize, radius = 7,
                 fill = "secondary/0.14", align = "center", justify = "center",
             }, {
-                ui.glyph({ name = "calendar", size = 18, color = "secondary" }),
+                ui.glyph({ name = "calendar", size = gs(18), color = "secondary" }),
             }),
-            ui.label({ text = "Weekly (7d)", fontSize = 18, fontWeight = "bold", color = "on_surface" }),
+            ui.label({ text = "Weekly (7d)", fontSize = fs(18), fontWeight = "bold", color = "on_surface" }),
         }),
         ui.separator({ orientation = "horizontal", color = "outline", opacity = 0.16 }),
         ui.scroll({ flexGrow = 1, gap = 6, align = "stretch" }, weeklyCards),
@@ -1158,12 +1175,12 @@ local function renderColumns(candidates)
     }, {
         ui.row({ gap = 8, align = "center", paddingH = 4, paddingV = 2 }, {
             ui.row({
-                width = 30, height = 30, radius = 7,
+                width = colHeaderBoxSize, height = colHeaderBoxSize, radius = 7,
                 fill = "primary/0.14", align = "center", justify = "center",
             }, {
-                ui.glyph({ name = "ticket", size = 18, color = "primary" }),
+                ui.glyph({ name = "ticket", size = gs(18), color = "primary" }),
             }),
-            ui.label({ text = "Reset Credits", fontSize = 18, fontWeight = "bold", color = "on_surface" }),
+            ui.label({ text = "Reset Credits", fontSize = fs(18), fontWeight = "bold", color = "on_surface" }),
         }),
         ui.separator({ orientation = "horizontal", color = "outline", opacity = 0.16 }),
         ui.scroll({ flexGrow = 1, gap = 6, align = "stretch" }, creditCards),
@@ -1197,15 +1214,18 @@ local function renderColumns(candidates)
 end
 
 function render()
+    local typo = getTypography()
+    local fs = typo.fontSize
+    local gs = typo.glyphSize
     if failure.code ~= "" and report == nil then
         panel.render(ui.column({ flexGrow = 1, padding = 14, align = "center", justify = "center" }, {
             ui.column({ gap = 10, width = 320 }, {
                 ui.row({ gap = 8, align = "center" }, {
-                    ui.glyph({ name = "scale", size = 18, color = "primary" }),
-                    ui.label({ text = noctalia.tr("ui.title"), fontSize = 15,
+                    ui.glyph({ name = "scale", size = gs(18), color = "primary" }),
+                    ui.label({ text = noctalia.tr("ui.title"), fontSize = fs(15),
                                fontWeight = "bold", color = "on_surface" }),
                 }),
-                errorBlock(),
+                errorBlock(typo),
             }),
         }))
         return
@@ -1219,18 +1239,18 @@ function render()
     end
 
     if #candidates > 0 then
-        renderColumns(candidates)
+        renderColumns(candidates, typo)
     else
         panel.render(ui.column({ flexGrow = 1, padding = 14, align = "center", justify = "center" }, {
             ui.column({ gap = 10, width = 320 }, {
                 ui.row({ gap = 8, align = "center" }, {
-                    ui.glyph({ name = "scale", size = 18, color = "primary" }),
-                    ui.label({ text = noctalia.tr("ui.title"), fontSize = 15,
+                    ui.glyph({ name = "scale", size = gs(18), color = "primary" }),
+                    ui.label({ text = noctalia.tr("ui.title"), fontSize = fs(15),
                                fontWeight = "bold", color = "on_surface" }),
                 }),
                 ui.label({
                     text = noctalia.tr("ui.no_providers") or "No providers configured or reachable.",
-                    fontSize = 13,
+                    fontSize = fs(13),
                     color = "on_surface_variant",
                 }),
             }),

@@ -1049,13 +1049,13 @@ end
 -- Model Quota Gearing Ratios (K_m = L_weekly / L_session):
 -- Defines how many full 100% 5h sessions equal 100% weekly quota.
 -- Low K (<= 3.5, e.g. Claude & GPT OSS ~2.5): weekly quota is the bottleneck; 1 session burns ~40% of the week.
--- Moderate K (~7.0, e.g. Claude Pro ~7.0): 1 session burns ~14.3% of the week (~1 session per day).
--- High K (>= 12.0, e.g. Codex ~16.0): 5h session windows are the bottleneck; 1 session burns only ~6.25%.
+-- Moderate K (e.g. Codex ~6.3, Claude Pro ~7.0): 1 session burns ~15.9% / ~14.3% of the week.
+-- High K (>= 12.0): session capacity can become the bottleneck before the weekly reset.
 M.DEFAULT_GEARING = {
     ["claude-oss"] = 2.5,
     ["gemini"] = 8.0,
     ["anthropic"] = 7.0,
-    ["openai"] = 16.0,
+    ["openai"] = 6.3, -- Observed Oct 1–12, 2026: 512 session points / 81 weekly points.
     ["default"] = 10.0,
 }
 
@@ -1191,7 +1191,7 @@ end
 -- Schedule-aware active pacing: Pacing and velocity are calculated over effective active working hours
 -- (discounting sleep and off-hours), elevating providers whose remaining active time is critically scarce.
 -- Model gearing (K_m): Couples weekly quotas with 5h session windows, factoring in how many sessions
--- fit in a weekly quota (e.g. ~2.5 for Claude & GPT OSS vs ~16 for Codex).
+-- fit in a weekly quota (e.g. ~2.5 for Claude & GPT OSS vs ~6.3 for Codex).
 -- Time-arbitrage & perishability: When weekly reset is within active reach (<= 24 active hours),
 -- unspent quota risks permanent loss and receives an urgency multiplier.
 -- Collision staggering: When designated as the advance leader, the weekly target pace is
@@ -1358,6 +1358,44 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
     end
 
     return score
+end
+
+-- ── Typographic scaling & presets ─────────────────────────────────────────────
+local PRESET_FACTORS = {
+    compact = 0.85,
+    small = 0.85,
+    normal = 1.00,
+    medium = 1.00,
+    large = 1.15,
+    huge = 1.30,
+    xlarge = 1.30,
+    ["extra-large"] = 1.30,
+    ["extra_large"] = 1.30,
+}
+
+function M.getTypography(customPreset)
+    local preset = customPreset
+    if preset == nil or preset == "" or preset == "inherit" then
+        if noctalia and type(noctalia.getConfig) == "function" then
+            preset = noctalia.getConfig("font_scale")
+        end
+    end
+    preset = tostring(preset or "normal"):lower()
+    local num = tonumber(preset)
+    local factor = num or PRESET_FACTORS[preset] or 1.00
+    if factor < 0.50 then factor = 0.50 end
+    if factor > 2.00 then factor = 2.00 end
+
+    return {
+        preset = preset,
+        factor = factor,
+        fontSize = function(base)
+            return math.max(7, math.floor((base or 11) * factor + 0.5))
+        end,
+        glyphSize = function(base)
+            return math.max(8, math.floor((base or 14) * factor + 0.5))
+        end,
+    }
 end
 
 return M

@@ -103,7 +103,7 @@ key = "gearing_openai"
 type = "string"
 label_key = "settings.gearing_openai.label"
 description_key = "settings.gearing_openai.description"
-default = "16.0"
+default = "6.3"
 
 [[setting]]
 key = "gearing_default"
@@ -111,6 +111,19 @@ type = "string"
 label_key = "settings.gearing_default.label"
 description_key = "settings.gearing_default.description"
 default = "10.0"
+
+[[setting]]
+key = "font_scale"
+type = "select"
+label_key = "settings.font_scale.label"
+description_key = "settings.font_scale.description"
+default = "normal"
+options = [
+  { value = "compact", label_key = "settings.font_scale.option.compact" },
+  { value = "normal", label_key = "settings.font_scale.option.normal" },
+  { value = "large", label_key = "settings.font_scale.option.large" },
+  { value = "huge", label_key = "settings.font_scale.option.huge" },
+]
 
 # ── Entries ───────────────────────────────────────────────────────────────────
 
@@ -252,12 +265,27 @@ label_key = "settings.color_by_usage.label"
 description_key = "settings.color_by_usage.description"
 default = true
 
+[[widget.setting]]
+key = "bar_font_scale"
+type = "select"
+label_key = "settings.bar_font_scale.label"
+description_key = "settings.bar_font_scale.description"
+default = "inherit"
+options = [
+  { value = "inherit", label_key = "settings.font_scale.option.inherit" },
+  { value = "compact", label_key = "settings.font_scale.option.compact" },
+  { value = "normal", label_key = "settings.font_scale.option.normal" },
+  { value = "large", label_key = "settings.font_scale.option.large" },
+  { value = "huge", label_key = "settings.font_scale.option.huge" },
+]
+
 [[panel]]
 id = "panel"
 entry = "panel.luau"
 # Provider tabs at the top, detailed charts and accessory cards below.
+# Scaled to 780px to accommodate all cards comfortably under huge typography presets.
 width = 1520
-height = 600
+height = 780
 # The shell draws the Placement and Position rows for every plugin panel whether
 # or not they are declared; declaring them only picks the default the user gets.
 placement = "attached"

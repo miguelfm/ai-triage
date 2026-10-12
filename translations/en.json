@@ -18,6 +18,21 @@
         "pace": "Pace against the clock"
       }
     },
+    "bar_font_scale": {
+      "description": "Adjusts font and icon sizes for this specific bar capsule.",
+      "label": "Capsule font size"
+    },
+    "font_scale": {
+      "description": "Adjusts font and icon sizes proportionally across the panel and bar.",
+      "label": "Font size",
+      "option": {
+        "compact": "Compact (85%)",
+        "huge": "Huge (130%)",
+        "inherit": "Inherit (from plugin settings)",
+        "large": "Large (115%)",
+        "normal": "Normal (100%)"
+      }
+    },
     "glyph_position": {
       "description": "Which side of the reading the icon sits on.",
       "label": "Icon position",
@@ -59,23 +74,23 @@
       "label": "Daily meal & break pause (hours)"
     },
     "gearing_claude_oss": {
-      "description": "Number of full 5h sessions that equal 100% weekly quota for Claude & GPT OSS (default 2.5, where 1 session burns ~40% of the week).",
+      "description": "Estimated full 5h sessions per weekly quota for Claude & GPT OSS. The panel displays whole numbers; calculations and automatic calibration retain decimal precision.",
       "label": "Gearing ratio: Claude & GPT OSS (sessions/wk)"
     },
     "gearing_gemini": {
-      "description": "Number of full 5h sessions that equal 100% weekly quota for Gemini (default 8.0, where 1 session burns ~12.5% of the week).",
+      "description": "Estimated full 5h sessions per weekly quota for Gemini. The panel displays whole numbers; calculations and automatic calibration retain decimal precision.",
       "label": "Gearing ratio: Gemini (sessions/wk)"
     },
     "gearing_anthropic": {
-      "description": "Number of full 5h sessions that equal 100% weekly quota for Claude Pro (default 7.0, where 1 session burns ~14.3% of the week).",
+      "description": "Estimated full 5h sessions per weekly quota for Claude Pro. The panel displays whole numbers; calculations and automatic calibration retain decimal precision.",
       "label": "Gearing ratio: Claude Pro (sessions/wk)"
     },
     "gearing_openai": {
-      "description": "Number of full 5h sessions that equal 100% weekly quota for OpenAI / Codex (default 16.0, where 1 session burns ~6.25% of the week).",
+      "description": "Estimated full 5h sessions per weekly quota for OpenAI / Codex. The panel displays whole numbers; calculations and automatic calibration retain decimal precision.",
       "label": "Gearing ratio: Codex / OpenAI (sessions/wk)"
     },
     "gearing_default": {
-      "description": "Default number of full 5h sessions that equal 100% weekly quota for unlisted models (default 10.0).",
+      "description": "Estimated full 5h sessions per weekly quota for unlisted models. The panel displays whole numbers; calculations and automatic calibration retain decimal precision.",
       "label": "Gearing ratio: Default (sessions/wk)"
     },
     "show_glyph": {

@@ -7,7 +7,7 @@ local function read(path)
     return source
 end
 
-local function loadPanel(entry, failure)
+local function loadPanel(entry, failure, config)
     local watchers = {}
     local isReport = type(entry) == "table" and type(entry.entries) == "table"
     local report = isReport and entry or entry ~= nil and { entries = { entry } } or nil
@@ -18,7 +18,9 @@ local function loadPanel(entry, failure)
         error = failure or { code = "", detail = "" },
         selected = isReport and entry.selected or first ~= nil and first.id or nil,
     }
+    local cfg = config or {}
     local noctalia = {
+        getConfig = function(key) return cfg[key] end,
         state = {
             get = function(key) return values[key] end,
             set = function(key, value) values[key] = value end,
@@ -173,4 +175,63 @@ local renderedTree = loadPanel(normalReport)
 local scrollElements = collect(renderedTree, "scroll")
 assert(#scrollElements >= 3, "expected at least 3 ui.scroll elements for the 3 columns, found " .. tostring(#scrollElements))
 
-io.write("ok: malformed collections, authentication errors, and scroll containers verified in panel\n")
+-- Typography scaling verification in panel
+local renderedHuge = loadPanel(normalReport, nil, { font_scale = "huge" })
+local hugeLabels = collect(renderedHuge, "label")
+local foundTitleHuge = false
+for _, l in ipairs(hugeLabels) do
+    if l.props.text == "ui.title" or l.props.text == "AI Triage" then
+        assert(l.props.fontSize == 25, "Huge preset title fontSize must be 25, got " .. tostring(l.props.fontSize))
+        foundTitleHuge = true
+    end
+end
+assert(foundTitleHuge, "AI Triage title label must be present in huge panel")
+
+local renderedCompact = loadPanel(normalReport, nil, { font_scale = "compact" })
+local compactLabels = collect(renderedCompact, "label")
+local foundTitleCompact = false
+for _, l in ipairs(compactLabels) do
+    if l.props.text == "ui.title" or l.props.text == "AI Triage" then
+        assert(l.props.fontSize == 16, "Compact preset title fontSize must be 16, got " .. tostring(l.props.fontSize))
+        foundTitleCompact = true
+    end
+end
+assert(foundTitleCompact, "AI Triage title label must be present in compact panel")
+
+-- Session estimates are rounded only at presentation; percentages use precise ratios.
+local function quotaEntry(id, name, session, weekly)
+    return {
+        id = id, display_name = name, status = "ready", sections = {},
+        metrics = {
+            { label = "Session", percent = session, window_secs = 18000,
+              reset_at = "2030-01-01T05:00:00Z" },
+            { label = "Weekly", percent = weekly, window_secs = 604800,
+              reset_at = "2030-01-07T00:00:00Z" },
+        },
+    }
+end
+local function hasTooltip(tree, text)
+    for _, row in ipairs(collect(tree, "row")) do
+        if row.props.tooltip == text then return true end
+    end
+    return false
+end
+for _, case in ipairs({
+    { "openai", "Codex", "~6s/w", 16 },
+    { "claude-oss", "Claude & GPT OSS", "~3s/w", 40 },
+    { "anthropic", "Claude", "~7s/w", 14 },
+    { "gemini", "Gemini", "~8s/w", 13 },
+}) do
+    local tree = loadPanel(quotaEntry(case[1], case[2], 0, 0))
+    assert(has(labels(tree), case[3]), "session badge must display a whole number for " .. case[1])
+    local roundedSessions = case[3]:match("~(%d+)s/w")
+    assert(hasTooltip(tree, "Gearing: ~" .. roundedSessions .. " full 5h sessions per week (1 session burns ~" .. case[4] .. "% weekly quota)"),
+        "tooltip must round session estimates while preserving precise weekly burn for " .. case[1])
+end
+local _, publishQuota = loadPanel(quotaEntry("openai", "Codex", 0, 0))
+local calibratedTree = publishQuota(quotaEntry("openai", "Codex", 31, 5)) -- K = 6.2
+assert(has(labels(calibratedTree), "~6s/w"), "calibrated ratios must also display whole numbers")
+assert(hasTooltip(calibratedTree, "Gearing: ~6 full 5h sessions per week (1 session burns ~16% weekly quota · calibrated from observed usage)"),
+    "calibration must retain 6.2 internally: rounding it to 6 would incorrectly display 17% weekly burn")
+
+io.write("ok: panel rendering, typography, and rounded session estimates with precise calibration\n")

@@ -619,3 +619,30 @@ local nousRows = nousBalanceBar.tooltip()
 assert(#nousRows == 1 and nousRows[1].key == "Nous Research" and nousRows[1].value == "8.19",
     "a balance provider's tooltip should not report no usage")
 
+-- Typography scaling verification in bar
+local hugeBar = loadBar({ vendor = "openai", bar_font_scale = "huge" }, {
+    entries = { entry("openai", "Codex", 50) }
+})
+local hugePercent = findNode(hugeBar.rendered(), function(n) return n.kind == "label" and n.props.text == "50%" end)
+assert(hugePercent and hugePercent.props.fontSize == 14,
+    "Huge bar preset must scale 11px font to 14px, got " .. tostring(hugePercent and hugePercent.props.fontSize))
+local hugeGlyph = findNode(hugeBar.rendered(), function(n) return n.kind == "glyph" and n.props.name == "brand-openai" end)
+assert(hugeGlyph and hugeGlyph.props.size == 18,
+    "Huge bar preset must scale 14px glyph to 18px, got " .. tostring(hugeGlyph and hugeGlyph.props.size))
+
+local compactBar = loadBar({ vendor = "openai", bar_font_scale = "compact" }, {
+    entries = { entry("openai", "Codex", 50) }
+})
+local compactPercent = findNode(compactBar.rendered(), function(n) return n.kind == "label" and n.props.text == "50%" end)
+assert(compactPercent and compactPercent.props.fontSize == 9,
+    "Compact bar preset must scale 11px font to 9px, got " .. tostring(compactPercent and compactPercent.props.fontSize))
+
+local inheritedBar = loadBar({ vendor = "openai", font_scale = "large", bar_font_scale = "inherit" }, {
+    entries = { entry("openai", "Codex", 50) }
+})
+local inheritedPercent = findNode(inheritedBar.rendered(), function(n) return n.kind == "label" and n.props.text == "50%" end)
+assert(inheritedPercent and inheritedPercent.props.fontSize == 13,
+    "Inherited large font_scale must scale 11px font to 13px, got " .. tostring(inheritedPercent and inheritedPercent.props.fontSize))
+
+io.write("ok: account selection, unavailable providers, steady capsule, and typography scaling in bar\n")
+

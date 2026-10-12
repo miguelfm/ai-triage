@@ -11,7 +11,7 @@ The triage engine solves a continuous, multi-horizon resource allocation problem
 
 1. **Short-Term Rolling Sessions** ($T_s = 5\text{h} = 18000\text{s}$): Once initiated, quota headroom not consumed before the rolling window expires is permanently forfeit.
 2. **Long-Term Weekly Caps** ($T_w = 7\text{d} = 604800\text{s}$): Quota resets periodically. Unused weekly allocation at reset date is lost to the subscription cycle.
-3. **Multi-Window Gearing Disparity ($K_m$)**: Different models consume weekly budgets at drastically different rates per 5h session ($K_m$ ranges from $2.5$ to $16.0$), requiring structural protection against premature weekly starvation or session capacity bottlenecks.
+3. **Multi-Window Gearing Disparity ($K_m$)**: Different models consume weekly budgets at drastically different rates per 5h session ($K_m$ baseline defaults range from $2.5$ to $10.0$), requiring structural protection against premature weekly starvation or session capacity bottlenecks.
 4. **Circadian Active Pacing**: Humans do not interact with models 24 hours a day. Effective consumption capacity is strictly bounded by active waking hours ($H_{\text{active}}$), requiring sleeping and meal pauses to be discounted when projecting quota exhaustion.
 5. **Perishable Time-Arbitrage & Sprint Logic**: A model whose weekly quota resets within $\le 3\text{h}$ must be sprinted aggressively to exhaust any remaining allocation, even down to $1\text{–}4\%$, extracting $100\%$ paid value before the reset zeroes the counter.
 6. **Hard Feasibility Constraints**: Queries must never be routed to models whose weekly ($U_{i,w} \ge 100\%$) or session ($U_{i,s} \ge 100\%$) quotas are fully depleted.
@@ -62,8 +62,10 @@ Empirically calibrated baseline values across supported providers:
 | `claude-oss` | Claude 3.7 Sonnet & GPT-OSS | **2.5** | $40.0\%$ | $2.5$ sessions |
 | `gemini` | Gemini 2.5 Pro / Flash | **8.0** | $12.5\%$ | $8.0$ sessions |
 | `anthropic` | Claude Pro (Direct Anthropic) | **7.0** | $14.3\%$ | $7.0$ sessions |
-| `openai` | OpenAI Codex / GPT-4o | **16.0** | $6.25\%$ | $16.0$ sessions |
+| `openai` | OpenAI Codex | **6.3** | $15.9\%$ | $6.3$ sessions |
 | *Default* | Custom / Unknown Provider | **10.0** | $10.0\%$ | $10.0$ sessions |
+
+The Codex baseline is estimated from 12 comparable usage intervals on October 1–12, 2026: $\sum \Delta S / \sum \Delta W = 512 / 81 \approx 6.3$. Intervals spanning session or weekly resets are excluded. A full session means consumption of 100% of the 5h quota; reset credits are excluded from this capacity estimate. Rounded percentages and future changes in limits can affect the ratio.
 
 ##### Dynamic Telemetry-Based Gearing Calibration:
 In addition to baseline defaults, `ai-triage` continuously observes real consumption deltas during active sessions:
@@ -76,7 +78,7 @@ This allows the plugin to automatically self-tune to the user's actual prompt si
 In $H_w^*$ remaining active hours, assuming an average session consumes over $5\text{h}$:
 $$C_{\max} = \frac{H_w^* \times 20.0}{K_m}$$
 $$\text{DutyCycle} = \frac{w_{\text{free}}}{\max(1.0, C_{\max})}$$
-- When $\text{DutyCycle} \ge 0.70$: A high-gearing model (e.g. Codex $K_m = 16$) faces a **session capacity bottleneck**—there are not enough 5h session slots left before the reset to exhaust the remaining quota unless consumed continuously.
+- When $\text{DutyCycle} \ge 0.70$: A model requiring many sessions relative to the remaining active hours faces a **session capacity bottleneck**—there are not enough 5h session slots left before the reset to exhaust the remaining quota unless consumed continuously.
 - When $\text{DutyCycle} \le 0.65$ with $K_m \le 3.5$: A low-gearing model (e.g. Claude & GPT OSS) risks **premature weekly exhaustion** and must be conserved.
 
 ---
@@ -203,7 +205,7 @@ The Noctalia panel displays three functional columns aligned in real-time triage
 - **Column 2: Weekly (7d)**:
   - Model name and dynamic triage badge (`🔥 Use now`, `⚡ Fast-track`, `Balanced`, `Conserve`, `⊗ Exhausted`).
   - Active time-to-reset pill (e.g. `Dom, Out 11 17:37 (~0.9h active)`).
-  - Gearing ratio indicator badge (e.g. `~8.0s/w`, `~16.0s/w`).
+  - Gearing ratio indicator badge (e.g. `~8s/w`, `~6s/w`). Session estimates and tooltips are rounded to whole numbers for display; calculations and automatic calibration retain the underlying decimal precision.
 - **Column 3: Reset Credits & Strategy**:
   - Reset Plan collision card with numbered staggering directives.
   - Optimal Reset Window claim action card (when quota is 100%).
