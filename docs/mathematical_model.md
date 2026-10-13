@@ -232,3 +232,4 @@ Execution guardrails:
 - Redirects stdin from `/dev/null` to prevent terminal freezes.
 - Runs with isolated working directory (`/tmp`) to prevent repo pollution.
 - Completely suppressed when weekly quota is $100\%$ depleted.
+- **State persistence & clock resolution**: Priming events notify Noctalia via IPC (`kickstart` event), persisting session initiation timestamps in `noctalia.state`. Even at $0\%$ quota consumption, the panel immediately unlocks and displays the active expiration clock time (rather than an unstarted `--:--` placeholder), transitions the session status indicator to `5h rolling`, and suppresses redundant kickstart triggers.

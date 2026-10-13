@@ -119,9 +119,10 @@ end
 
 -- ── Presentation & Triage Formatting ──────────────────────────────────────────
 
-local function formatResetTime(metric, windowLabel)
+local function formatResetTime(metric, windowLabel, isStarted)
     local isWeekly = windowLabel == "7d"
-    if not isWeekly and not isSessionStarted(metric) then
+    local active = isWeekly or isStarted or isSessionStarted(metric)
+    if not active then
         return ""
     end
     local at = parseIso(metric and metric.reset_at)
@@ -152,8 +153,9 @@ local function formatResetTime(metric, windowLabel)
     end
 end
 
-local function countdownColor(metric)
-    if not isSessionStarted(metric) then
+local function countdownColor(metric, isStarted)
+    local active = isStarted or isSessionStarted(metric)
+    if not active then
         return "on_surface_variant"
     end
     local at = parseIso(metric and metric.reset_at)
@@ -178,10 +180,11 @@ local function countdownColor(metric)
     end
 end
 
-local function calculateElapsed(metric, windowLabel)
+local function calculateElapsed(metric, windowLabel, isStarted)
     if metric == nil then return nil end
     local isWeekly = windowLabel == "7d"
-    if not isWeekly and not isSessionStarted(metric) then
+    local active = isWeekly or isStarted or isSessionStarted(metric)
+    if not active then
         return nil
     end
     local fromDetail = elapsedPercent(metric.detail)
@@ -210,7 +213,7 @@ local function formatSeconds(seconds)
     return string.format("%dm", rest)
 end
 
-local function assessTriage(metric, percent, elapsedPct, windowLabel, item, staggerPlan)
+local function assessTriage(metric, percent, elapsedPct, windowLabel, item, staggerPlan, isStarted)
     if metric == nil or percent == nil then return nil end
     local isWeekly = windowLabel == "7d"
     local remainingQuota = 100 - percent
@@ -348,7 +351,8 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
         }
     end
 
-    if not isWeekly and not isSessionStarted(metric) and percent == 0 then
+    local active = isWeekly or isStarted or isSessionStarted(metric)
+    if not isWeekly and not active and percent == 0 then
         return {
             status = "fresh",
             label = "Fresh",
@@ -379,6 +383,37 @@ end
 local kickstarting = {}
 local kickstartedAt = {}
 
+local function getKickstartedAt(target)
+    if not target then return nil end
+    local ts = kickstartedAt[target]
+    if ts == nil and type(noctalia) == "table" and type(noctalia.state) == "table" and type(noctalia.state.get) == "function" then
+        local st = noctalia.state.get("kickstarted_at")
+        if type(st) == "table" and type(st[target]) == "number" then
+            kickstartedAt[target] = st[target]
+            ts = st[target]
+        end
+    end
+    return ts
+end
+
+local function setKickstartedAt(target, ts)
+    if not target then return end
+    kickstartedAt[target] = ts
+    if type(noctalia) == "table" and type(noctalia.state) == "table" then
+        local st = {}
+        if type(noctalia.state.get) == "function" then
+            local current = noctalia.state.get("kickstarted_at")
+            if type(current) == "table" then
+                for k, v in pairs(current) do st[k] = v end
+            end
+        end
+        st[target] = ts
+        if type(noctalia.state.set) == "function" then
+            noctalia.state.set("kickstarted_at", st)
+        end
+    end
+end
+
 local function kickstartWindow(target)
     if target == nil or kickstarting[target] then return end
     kickstarting[target] = true
@@ -391,7 +426,7 @@ local function kickstartWindow(target)
             kickstarting[target] = nil
             local ok = result == nil or result == true or result.exitCode == 0
             if ok then
-                kickstartedAt[target] = os.time()
+                setKickstartedAt(target, os.time())
                 requestRefresh()
             else
                 local err = (type(result) == "table" and type(result.stderr) == "string" and result.stderr ~= "")
@@ -492,23 +527,24 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
     local showValue = value ~= "" and value ~= string.format("%d%%", percent)
 
     local ksTarget = not isWeekly and kickstartTarget(item) or nil
-    local justKickstarted = ksTarget ~= nil and kickstartedAt[ksTarget] ~= nil
-        and (os.time() - kickstartedAt[ksTarget]) < 18000
+    local ksTs = getKickstartedAt(ksTarget)
+    local justKickstarted = ksTarget ~= nil and ksTs ~= nil
+        and (os.time() - ksTs) < 18000
 
-    local resetTimeText = formatResetTime(metric, windowLabel)
     local isStarted = isWeekly or isSessionStarted(metric) or justKickstarted
+    local resetTimeText = formatResetTime(metric, windowLabel, isStarted)
     local leftDuration = ""
     if isStarted then
         leftDuration = countdown(metric)
         if (leftDuration == "now" or leftDuration == noctalia.tr("ui.now"))
-            and not isWeekly and not isSessionStarted(metric) and not justKickstarted then
+            and not isWeekly and not isStarted then
             leftDuration = ""
         end
     end
     local resetTooltip = leftDuration ~= "" and ("Renews in " .. leftDuration) or nil
 
-    local elapsedPct = calculateElapsed(metric, windowLabel)
-    local triage = assessTriage(metric, percent, elapsedPct, windowLabel, item, staggerPlan)
+    local elapsedPct = calculateElapsed(metric, windowLabel, isStarted)
+    local triage = assessTriage(metric, percent, elapsedPct, windowLabel, item, staggerPlan, isStarted)
 
     if triage ~= nil then
         titleChildren[#titleChildren + 1] = ui.row({
@@ -524,7 +560,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
 
     local rightMeta = {}
     if leftDuration ~= "" then
-        local fgColor = countdownColor(metric)
+        local fgColor = countdownColor(metric, isStarted)
         rightMeta[#rightMeta + 1] = ui.row({
             gap = 3, align = "center",
             paddingH = 3, paddingV = 1,

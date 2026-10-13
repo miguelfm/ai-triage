@@ -102,11 +102,13 @@ local function hasLabel(tree, text)
     return false
 end
 
-local function loadPanelWithReport(report)
+local function loadPanelWithReport(report, extraState)
+    local prevKickstart = mockState and mockState.kickstarted_at
     mockState = {
         report = report,
         error = { code = "", detail = "" },
         selected = report.entries and report.entries[1] and report.entries[1].id or nil,
+        kickstarted_at = extraState and extraState.kickstarted_at or prevKickstart,
     }
     local panelDrawn = nil
     local panelObj = {
@@ -224,6 +226,23 @@ assert(#startButtons3 == 1,
     "When Claude is actively started, only unstarted Codex should show Start 5h. Got: " .. #startButtons3)
 assert(hasLabel(panelTree3, "--:--"),
     "Unstarted Codex must display '--:--' while active Claude displays its clock")
+
+-- Test scenario 3b: Codex has 0% usage, remaining > 90% (4h 53m left), but was just kickstarted!
+-- It must display its reset clock (NOT '--:--'), show '5h rolling', and hide 'Start 5h'.
+testReport.entries[1].metrics[1].percent = 0
+testReport.entries[1].metrics[1].value = "0%"
+testReport.entries[1].metrics[1].reset_at = fullWindowIso
+testReport.entries[1].metrics[1].detail = "Resets in 4h 53m · 2% elapsed · 2pts under"
+mockState.kickstarted_at = { codex = now - 420 }
+local panelTree3b = loadPanelWithReport(testReport)
+local startButtons3b = buttonsWithText(panelTree3b, "Start 5h")
+assert(#startButtons3b == 0,
+    "When Codex was kickstarted and Claude is active, 0 Start 5h buttons should appear. Got: " .. #startButtons3b)
+assert(not hasLabel(panelTree3b, "--:--"),
+    "Kickstarted Codex with 0% usage must display its clock time, NOT '--:--'")
+assert(hasLabel(panelTree3b, "5h rolling"),
+    "Kickstarted Codex must display '5h rolling' pill")
+mockState.kickstarted_at = nil
 
 -- Test scenario 4: Both are active (Codex also consumed quota)
 testReport.entries[1].metrics[1].percent = 5

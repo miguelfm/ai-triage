@@ -1,6 +1,6 @@
 id = "miguelfm/ai-triage"
 name = "AI Triage"
-version = "1.1.1"
+version = "1.1.2"
 plugin_api = 22
 author = "miguelfm"
 license = "MIT"

@@ -261,6 +261,15 @@ function onIpc(event, payload)
     if event == "select" and type(payload) == "string" and payload ~= "" then
         noctalia.state.set("selected", payload)
     end
+    if event == "kickstart" and type(payload) == "string" and payload ~= "" then
+        local st = {}
+        local current = noctalia.state.get("kickstarted_at")
+        if type(current) == "table" then
+            for k, v in pairs(current) do st[k] = v end
+        end
+        st[payload] = os.time()
+        noctalia.state.set("kickstarted_at", st)
+    end
 end
 
 noctalia.setUpdateInterval(intervalMs())
