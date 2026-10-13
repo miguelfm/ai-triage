@@ -24,6 +24,20 @@ description_key = "settings.refresh_minutes.description"
 default = 5
 min = 1
 max = 120
+step = 1
+
+[[setting]]
+key = "font_scale"
+type = "select"
+label_key = "settings.font_scale.label"
+description_key = "settings.font_scale.description"
+default = "normal"
+options = [
+  { value = "compact", label_key = "settings.font_scale.option.compact" },
+  { value = "normal", label_key = "settings.font_scale.option.normal" },
+  { value = "large", label_key = "settings.font_scale.option.large" },
+  { value = "huge", label_key = "settings.font_scale.option.huge" },
+]
 
 [[setting]]
 key = "schedule_aware_triage"
@@ -40,6 +54,8 @@ description_key = "settings.sleep_start_hour.description"
 default = 0
 min = 0
 max = 23
+step = 1
+visible_when = { key = "schedule_aware_triage", values = ["true"] }
 
 [[setting]]
 key = "sleep_end_hour"
@@ -49,6 +65,8 @@ description_key = "settings.sleep_end_hour.description"
 default = 8
 min = 0
 max = 23
+step = 1
+visible_when = { key = "schedule_aware_triage", values = ["true"] }
 
 [[setting]]
 key = "weekend_sleep_start_hour"
@@ -58,6 +76,8 @@ description_key = "settings.weekend_sleep_start_hour.description"
 default = 1
 min = 0
 max = 23
+step = 1
+visible_when = { key = "schedule_aware_triage", values = ["true"] }
 
 [[setting]]
 key = "weekend_sleep_end_hour"
@@ -67,6 +87,8 @@ description_key = "settings.weekend_sleep_end_hour.description"
 default = 9
 min = 0
 max = 23
+step = 1
+visible_when = { key = "schedule_aware_triage", values = ["true"] }
 
 [[setting]]
 key = "meal_pause_hours"
@@ -76,54 +98,67 @@ description_key = "settings.meal_pause_hours.description"
 default = 1
 min = 0
 max = 3
+step = 1
+visible_when = { key = "schedule_aware_triage", values = ["true"] }
+
+# Gearing ratios: Decimal numbers (sessions per weekly quota).
+# Automatically calibrated at runtime from usage telemetry unless customized here.
+# Flagged advanced to keep standard settings concise.
 
 [[setting]]
 key = "gearing_claude_oss"
-type = "string"
+type = "double"
 label_key = "settings.gearing_claude_oss.label"
 description_key = "settings.gearing_claude_oss.description"
-default = "2.5"
+default = 2.5
+min = 0.5
+max = 30.0
+step = 0.1
+advanced = true
 
 [[setting]]
 key = "gearing_gemini"
-type = "string"
+type = "double"
 label_key = "settings.gearing_gemini.label"
 description_key = "settings.gearing_gemini.description"
-default = "8.0"
+default = 8.0
+min = 0.5
+max = 30.0
+step = 0.1
+advanced = true
 
 [[setting]]
 key = "gearing_anthropic"
-type = "string"
+type = "double"
 label_key = "settings.gearing_anthropic.label"
 description_key = "settings.gearing_anthropic.description"
-default = "7.0"
+default = 7.0
+min = 0.5
+max = 30.0
+step = 0.1
+advanced = true
 
 [[setting]]
 key = "gearing_openai"
-type = "string"
+type = "double"
 label_key = "settings.gearing_openai.label"
 description_key = "settings.gearing_openai.description"
-default = "6.3"
+default = 6.3
+min = 0.5
+max = 30.0
+step = 0.1
+advanced = true
 
 [[setting]]
 key = "gearing_default"
-type = "string"
+type = "double"
 label_key = "settings.gearing_default.label"
 description_key = "settings.gearing_default.description"
-default = "10.0"
-
-[[setting]]
-key = "font_scale"
-type = "select"
-label_key = "settings.font_scale.label"
-description_key = "settings.font_scale.description"
-default = "normal"
-options = [
-  { value = "compact", label_key = "settings.font_scale.option.compact" },
-  { value = "normal", label_key = "settings.font_scale.option.normal" },
-  { value = "large", label_key = "settings.font_scale.option.large" },
-  { value = "huge", label_key = "settings.font_scale.option.huge" },
-]
+default = 10.0
+min = 0.5
+max = 30.0
+step = 0.1
+advanced = true
 
 # ── Entries ───────────────────────────────────────────────────────────────────
 
@@ -180,15 +215,28 @@ options = [
   { value = "copilot", label_key = "settings.vendor.option.copilot" },
 ]
 
-# Named CLI accounts use stable `<provider>@<label>` entry ids. Keeping the
-# account separate preserves the provider dropdown while allowing any label the
-# user's ai-usagebar config declares.
+# One capsule can carry more than one provider; "auto" fills it with the busiest.
+# Visible only when vendor is auto because pinned providers show exactly themselves.
+[[widget.setting]]
+key = "provider_limit"
+type = "int"
+label_key = "settings.provider_limit.label"
+description_key = "settings.provider_limit.description"
+default = 1
+min = 1
+max = 4
+step = 1
+visible_when = { key = "vendor", values = ["auto"] }
+
+# Named CLI accounts use stable `<provider>@<label>` entry ids.
+# Kept in advanced so single-account users have a clean settings view.
 [[widget.setting]]
 key = "account"
 type = "string"
 label_key = "settings.account.label"
 description_key = "settings.account.description"
 default = ""
+advanced = true
 
 # Keys named after the core `sysmon` widget, so the CPU capsule and this one are
 # configured with the same vocabulary.
@@ -204,11 +252,25 @@ options = [
 ]
 
 [[widget.setting]]
+key = "color_by_usage"
+type = "bool"
+label_key = "settings.color_by_usage.label"
+description_key = "settings.color_by_usage.description"
+default = true
+
+[[widget.setting]]
 key = "show_value"
 type = "bool"
 label_key = "settings.show_value.label"
 description_key = "settings.show_value.description"
 default = true
+
+[[widget.setting]]
+key = "show_name"
+type = "bool"
+label_key = "settings.show_name.label"
+description_key = "settings.show_name.description"
+default = false
 
 [[widget.setting]]
 key = "show_glyph"
@@ -227,16 +289,7 @@ options = [
   { value = "before", label_key = "settings.glyph_position.option.before" },
   { value = "after", label_key = "settings.glyph_position.option.after" },
 ]
-
-# One capsule can carry more than one provider; "auto" fills it with the busiest.
-[[widget.setting]]
-key = "provider_limit"
-type = "int"
-label_key = "settings.provider_limit.label"
-description_key = "settings.provider_limit.description"
-default = 1
-min = 1
-max = 4
+visible_when = { key = "show_glyph", values = ["true"] }
 
 [[widget.setting]]
 key = "extras"
@@ -250,20 +303,6 @@ options = [
   { value = "both", label_key = "settings.extras.option.both" },
   { value = "none", label_key = "settings.extras.option.none" },
 ]
-
-[[widget.setting]]
-key = "show_name"
-type = "bool"
-label_key = "settings.show_name.label"
-description_key = "settings.show_name.description"
-default = false
-
-[[widget.setting]]
-key = "color_by_usage"
-type = "bool"
-label_key = "settings.color_by_usage.label"
-description_key = "settings.color_by_usage.description"
-default = true
 
 [[widget.setting]]
 key = "bar_font_scale"

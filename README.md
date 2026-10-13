@@ -73,33 +73,33 @@ Plugin-level settings (shared across poller, capsules, and panel):
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `refresh_minutes` | `int` | `5` | Minutes between CLI calls (1 to 120). Countdowns tick locally in between. |
-| `schedule_aware_triage` | `bool` | `true` | Pace quota consumption against active working hours (discounting sleep and meals). |
-| `sleep_start_hour` | `int` | `0` | Weekday sleep/off-hours start hour (0 = midnight). |
-| `sleep_end_hour` | `int` | `8` | Weekday wake-up / active hours start hour (8 = 8 AM). |
-| `weekend_sleep_start_hour` | `int` | `1` | Weekend sleep/off-hours start hour (1 = 1 AM). |
-| `weekend_sleep_end_hour` | `int` | `9` | Weekend wake-up / active hours start hour (9 = 9 AM). |
-| `meal_pause_hours` | `int` | `1` | Estimated daily pause hours for lunch/breaks. |
-| `gearing_claude_oss` | `string` | `"2.5"` | Sessions per week for Claude & GPT OSS (1 session burns ~40% weekly quota). |
-| `gearing_gemini` | `string` | `"8.0"` | Sessions per week for Gemini (1 session burns ~12.5% weekly quota). |
-| `gearing_anthropic` | `string` | `"14.0"` | Sessions per week for Claude Pro (1 session burns ~7.1% weekly quota). |
-| `gearing_openai` | `string` | `"6.3"` | Full sessions per weekly quota for Codex / OpenAI (1 session burns ~15.9%; estimated from usage logs, October 1–12, 2026). |
-| `gearing_default` | `string` | `"10.0"` | Default sessions per week for unlisted models. |
 | `font_scale` | `select` | `"normal"` | Typographic scale preset across panel and bar (`compact` 85%, `normal` 100%, `large` 115%, `huge` 130%). |
+| `schedule_aware_triage` | `bool` | `true` | Pace quota consumption against active working hours (discounting sleep and meals). |
+| `sleep_start_hour` | `int` | `0` | Weekday sleep/off-hours start hour (0 to 23; 0 = midnight). Visible when schedule-aware triage is enabled. |
+| `sleep_end_hour` | `int` | `8` | Weekday wake-up / active hours start hour (0 to 23; 8 = 8 AM). Visible when schedule-aware triage is enabled. |
+| `weekend_sleep_start_hour` | `int` | `1` | Weekend sleep/off-hours start hour (0 to 23; 1 = 1 AM). Visible when schedule-aware triage is enabled. |
+| `weekend_sleep_end_hour` | `int` | `9` | Weekend wake-up / active hours start hour (0 to 23; 9 = 9 AM). Visible when schedule-aware triage is enabled. |
+| `meal_pause_hours` | `int` | `1` | Estimated daily pause hours for lunch/breaks (0 to 3). Visible when schedule-aware triage is enabled. |
+| `gearing_claude_oss` | `double` | `2.5` | *(Advanced)* Sessions per week for Claude & GPT OSS (1 session burns ~40% weekly quota). Calibrated dynamically by telemetry. |
+| `gearing_gemini` | `double` | `8.0` | *(Advanced)* Sessions per week for Gemini (1 session burns ~12.5% weekly quota). Calibrated dynamically by telemetry. |
+| `gearing_anthropic` | `double` | `7.0` | *(Advanced)* Sessions per week for Claude Pro (1 session burns ~14.3% weekly quota). Calibrated dynamically by telemetry. |
+| `gearing_openai` | `double` | `6.3` | *(Advanced)* Sessions per week for Codex / OpenAI (1 session burns ~15.9%; estimated from usage telemetry). |
+| `gearing_default` | `double` | `10.0` | *(Advanced)* Default sessions per week for unlisted models. |
 
 Per-widget settings (configurable for each bar capsule):
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `vendor` | `select` | `auto` | Tracked provider (`auto`, `anthropic`, `openai`, `gemini`, `claude-oss`, `antigravity`, etc.). `auto` tracks the busiest plan. |
-| `account` | `string` | empty | Optional named account label from the CLI config. |
+| `provider_limit` | `int` | `1` | Providers carried in one capsule (1 to 4). Visible only when provider is `auto`. |
+| `account` | `string` | empty | *(Advanced)* Optional named account label from CLI config (`<provider>@<label>`). |
 | `visualization` | `select` | `gauge` | Visual indicator style: `gauge` or `none`. |
-| `show_value` | `bool` | `true` | Show percentage text. |
-| `show_glyph` | `bool` | `true` | Show provider icon. |
-| `glyph_position` | `select` | `before` | Icon position: `before` or `after`. |
-| `provider_limit` | `int` | `1` | Providers carried in one capsule (1 to 4). Only applies on `auto`. |
-| `extras` | `select` | `countdown` | Auxiliary info beside percentage: `countdown`, `pace`, `both`, or `none`. |
-| `show_name` | `bool` | `false` | Show provider name beside reading. |
 | `color_by_usage` | `bool` | `true` | Color readings according to quota severity. |
+| `show_value` | `bool` | `true` | Show percentage text. |
+| `show_name` | `bool` | `false` | Show provider name beside reading. |
+| `show_glyph` | `bool` | `true` | Show provider icon. |
+| `glyph_position` | `select` | `before` | Icon position: `before` or `after`. Visible only when icon is enabled. |
+| `extras` | `select` | `countdown` | Auxiliary info beside percentage: `countdown`, `pace`, `both`, or `none`. |
 | `bar_font_scale` | `select` | `inherit` | Typographic preset for this capsule (`inherit`, `compact`, `normal`, `large`, `huge`). |
 
 ## IPC

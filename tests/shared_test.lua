@@ -523,6 +523,15 @@ local calibratedK, isCal = shared.getModelGearing("anthropic", "Claude", testCla
 assert(isCal == true, "gearing should be marked as empirically calibrated")
 assert(calibratedK == 7.0, "calibrated gearing for 70% session / 10% weekly must be 7.0")
 
+-- Manual override via double config in plugin settings:
+noctalia.getConfig = function(k)
+    if k == "gearing_gemini" then return 5.5 end
+    return nil
+end
+local geminiOverridden, isOverCal = shared.getModelGearing("gemini", "Gemini")
+assert(geminiOverridden == 5.5 and isOverCal == false, "gearing_gemini override via double config should be 5.5")
+noctalia.getConfig = nil
+
 -- Midweek comparison:
 -- Codex (K=6.3, 1 full session burns ~15.9% of the week; needs 3.78 sessions for the remaining 60%)
 -- Claude & GPT OSS (K=2.5, 1 session burns 40% of the week; needs only 1.5 sessions to finish remaining 60% weekly quota)
