@@ -1,6 +1,6 @@
 id = "miguelfm/ai-triage"
 name = "AI Triage"
-version = "1.1.2"
+version = "1.2.0"
 plugin_api = 22
 author = "miguelfm"
 license = "MIT"
@@ -10,6 +10,8 @@ tags = ["bar", "panel", "ai", "indicator", "utility"]
 # The CLI owns credentials, vendor endpoints and caching. This plugin only runs
 # `ai-usagebar usage --json` and draws the result.
 # Optional backend CLIs for `bin/ai-kickstart`: `claude`, `codex`, `agy`.
+# Note: ai-usagebar must query production `cloudcode-pa.googleapis.com` to report
+# Antigravity's Gemini quota buckets alongside Claude & GPT OSS.
 dependencies = ["ai-usagebar", "xdg-open"]
 
 # ── Plugin-level settings (shared by the poller, every capsule and the panel) ──

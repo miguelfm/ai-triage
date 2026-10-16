@@ -22,6 +22,9 @@ connections.
 When the CLI is missing or provider dashboards are clicked, the panel opens URLs
 with `xdg-open`. Install `xdg-open` alongside `ai-usagebar`.
 
+> [!NOTE]
+> **Antigravity & Gemini Quota Endpoint**: For Google Antigravity to report Gemini quotas (both 5-hour session and 7-day weekly limits), `ai-usagebar` must query the production Cloud Code endpoint (`https://cloudcode-pa.googleapis.com`). Google's internal daily staging endpoint (`daily-cloudcode-pa.googleapis.com`) does not return Gemini quota buckets (only third-party Claude/GPT buckets). Ensure your `ai-usagebar` build queries the production endpoint first.
+
 The plugin requires Noctalia plugin API 22 for `require()`.
 
 For the interactive rolling session kickstart feature (`[⚡ Start 5h]`), ensure `bin/ai-kickstart` is
