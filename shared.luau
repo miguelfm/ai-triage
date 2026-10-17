@@ -410,7 +410,15 @@ function M.headline(entry)
     end
     if #visibleMetrics == 0 then visibleMetrics = metrics end
 
-    local blocking = M.blockingMetric(visibleMetrics, entry.id)
+    -- Per-model quota pools (ai-usagebar 1.40+ model_pool) should not block the headline
+    -- if shared provider windows still have capacity
+    local nonPoolMetrics = {}
+    for _, m in ipairs(visibleMetrics) do
+        if type(m) == "table" and not m.model_pool then nonPoolMetrics[#nonPoolMetrics + 1] = m end
+    end
+    local candidateMetrics = #nonPoolMetrics > 0 and nonPoolMetrics or visibleMetrics
+
+    local blocking = M.blockingMetric(candidateMetrics, entry.id)
     if blocking ~= nil then return blocking end
 
     -- 1. For Antigravity: always follow active session usage across visible models
@@ -418,7 +426,7 @@ function M.headline(entry)
         local seen = {}
         local best = nil
         local bestPct = -1
-        for _, metric in ipairs(visibleMetrics) do
+        for _, metric in ipairs(candidateMetrics) do
             if type(metric) == "table" and metric.label ~= nil and metric.label ~= "" then
                 local model = tostring(metric.label)
                 if not seen[model] then
@@ -482,7 +490,9 @@ end
 function M.modelDisplayName(label)
     local lower = tostring(label or ""):lower()
     if lower:find("oss", 1, true) or lower:find("claude", 1, true) then return tostring(label or "") end
-    if lower:find("gemini", 1, true) then return "Gemini" end
+    if lower:find("argon", 1, true) then return "Gemini 4 Argon" end
+    if lower == "gemini" then return "Gemini" end
+    if lower:find("gemini", 1, true) then return tostring(label or "") end
     if lower:find("gpt", 1, true) or lower:find("openai", 1, true) then return "GPT" end
     return tostring(label or "")
 end
@@ -559,7 +569,7 @@ function M.dualMetrics(metrics)
         if type(m) == "table" then
             local w = tonumber(m.window_secs)
             local lbl = tostring(m.label or ""):lower()
-            if w ~= nil then
+            if w ~= nil and w > 0 then
                 if w <= 86400 and shortMetric == nil then
                     shortMetric = m
                 elseif w > 86400 and weeklyMetric == nil then

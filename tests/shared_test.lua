@@ -872,5 +872,32 @@ assert(#visibleEntries == 1 and visibleEntries[1].id == "anthropic",
 
 noctalia.getConfig = nil
 
-io.write("ok: shared timestamps, availability, provider order, mathematical triage score, reset staggering, and typography scale presets\n")
+-- 4. ai-usagebar 1.40 compatibility tests: model_pool, modelDisplayName, and window_secs
+local agyWithModelPool = {
+    id = "antigravity",
+    status = "ready",
+    metrics = {
+        { label = "Gemini", percent = 25, severity = "low", window_secs = 18000 },
+        { label = "Gemini 4 Argon", percent = 100, severity = "critical", model_pool = true },
+    },
+}
+local poolHeadline = shared.headline(agyWithModelPool)
+assert(poolHeadline.label == "Gemini" and poolHeadline.percent == 25,
+    "model_pool at 100% must not block shared provider windows in headline")
+
+assert(shared.modelDisplayName("Gemini 4 Argon") == "Gemini 4 Argon",
+    "modelDisplayName must preserve Argon pool names")
+assert(shared.modelDisplayName("Gemini") == "Gemini",
+    "modelDisplayName must preserve Gemini")
+
+local zeroWindowMetrics = {
+    { label = "Zero", percent = 10, window_secs = 0 },
+    { label = "Session", percent = 20, window_secs = 18000 },
+    { label = "Weekly", percent = 30, window_secs = 604800 },
+}
+local shortM, weeklyM = shared.dualMetrics(zeroWindowMetrics)
+assert(shortM.label == "Session" and weeklyM.label == "Weekly",
+    "dualMetrics must ignore non-positive window_secs")
+
+io.write("ok: shared timestamps, availability, provider order, mathematical triage score, reset staggering, typography scale presets, and 1.40 compat\n")
 
