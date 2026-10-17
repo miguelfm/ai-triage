@@ -94,10 +94,21 @@ The threshold for considering a model "low on headroom" scales with its gearing:
 $$\text{oneSessionPct} = \frac{100.0}{K_m}$$
 $$\text{lowHeadroomPct} = \min(30.0, \max(8.0, \text{oneSessionPct} \times 0.80))$$
 
+##### Temporal Distribution & Anti-Burst Smoothing ($P_{\text{smooth}}$):
+To optimize global multi-service consumption while preventing rapid quota concentration followed by availability droughts ("baleiros"), the model monitors deviation from nominal weekly pace:
+$$\Delta_{\text{pace}} = U_{i,w} - \left(\frac{T_w - \tau_w}{T_w} \times 100\right)$$
+When $H_w > 24.0\text{h}$ and the model is not fast-tracking a reset credit:
+$$P_{\text{smooth}} = \begin{cases}
+\max\left(0.35, 1.0 - 0.02 \times (\Delta_{\text{pace}} - 15.0)\right) & \text{if } \Delta_{\text{pace}} > 15.0\% \text{ (ahead of pace)} \\
+\min\left(1.35, 1.0 + 0.015 \times (-\Delta_{\text{pace}} - 15.0)\right) & \text{if } \Delta_{\text{pace}} < -15.0\% \text{ (lagging behind pace)} \\
+1.0 & \text{otherwise}
+\end{cases}$$
+When $H_w \le 24.0\text{h}$, $P_{\text{smooth}} = 1.0$ (damping is released for the final sprint).
+
 ##### Weekly Modulation Factor $W_{\text{weekly}}$:
 $$W_{\text{weekly}} = \begin{cases}
-0.08 + 0.15 \times \left(\frac{w_{\text{free}}}{\text{lowHeadroomPct}}\right) & \text{if } w_{\text{free}} \le \text{lowHeadroomPct} \text{ and } H_w > 24\text{h} \text{ and not StaggerLeader} \\
-\min\left(W_{\max}, \max(0.20, 0.40 + 0.60 \times \Pi_{w, \text{geared}})\right) & \text{otherwise}
+\left(0.08 + 0.15 \times \left(\frac{w_{\text{free}}}{\text{lowHeadroomPct}}\right)\right) \times P_{\text{smooth}} & \text{if } w_{\text{free}} \le \text{lowHeadroomPct} \text{ and } H_w > 24\text{h} \text{ and not StaggerLeader} \\
+\min\left(W_{\max}, \max\left(0.20, (0.40 + 0.60 \times \Pi_{w, \text{geared}}) \times P_{\text{smooth}}\right)\right) & \text{otherwise}
 \end{cases}$$
 where $W_{\max} = 2.20$ if the model is the designated Stagger Advance Leader, and $1.80$ otherwise.
 

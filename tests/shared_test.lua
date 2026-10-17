@@ -600,7 +600,48 @@ local claudeOssMidweekScore = shared.calculateModelTriageScore(claudeOssMidweek,
 assert(codexMidweekScore > claudeOssMidweekScore,
     string.format("Codex with moderate session gearing (%f) must outrank Claude OSS with low gearing (%f) mid-week", codexMidweekScore, claudeOssMidweekScore))
 
--- 9. Domain Helper & Transformation Unit Tests
+-- 9. Temporal distribution anti-burst smoothing test
+-- When two models have identical session metrics and gearing, but one is severely ahead of weekly pace
+-- (e.g. 70% burnt when only 20% of the week has elapsed), while the other is on pace:
+local aheadOfPaceModel = {
+    providerId = "gemini",
+    name = "Gemini",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 10, window_secs = 18000, reset_at = nil },
+    weeklyMetric = { percent = 70, window_secs = 604800, reset_at = isoIn(483840) }, -- 20% elapsed (~134h left)
+}
+local onPaceModel = {
+    providerId = "gemini",
+    name = "Gemini",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 10, window_secs = 18000, reset_at = nil },
+    weeklyMetric = { percent = 20, window_secs = 604800, reset_at = isoIn(483840) }, -- 20% elapsed, 20% burnt
+}
+local aheadScore = shared.calculateModelTriageScore(aheadOfPaceModel, nil, os.time(), cfg, true)
+local onPaceScore = shared.calculateModelTriageScore(onPaceModel, nil, os.time(), cfg, true)
+assert(onPaceScore > aheadScore,
+    string.format("model on pace (%f) must outrank severely over-consumed model (%f) to prevent weekly void", onPaceScore, aheadScore))
+
+-- 10. Locked-out session unlock proximity ranking
+-- Two models with 100% session usage: the one unlocking in 15 minutes must rank higher than one unlocking in 4 hours
+local unlockSoonModel = {
+    providerId = "openai",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 100, window_secs = 18000, reset_at = isoIn(15 * 60) },
+    weeklyMetric = { percent = 30, window_secs = 604800, reset_at = isoIn(80 * 3600) },
+}
+local unlockLaterModel = {
+    providerId = "openai",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 100, window_secs = 18000, reset_at = isoIn(4 * 3600) },
+    weeklyMetric = { percent = 30, window_secs = 604800, reset_at = isoIn(80 * 3600) },
+}
+local unlockSoonScore = shared.calculateModelTriageScore(unlockSoonModel, nil, os.time(), cfg, true)
+local unlockLaterScore = shared.calculateModelTriageScore(unlockLaterModel, nil, os.time(), cfg, true)
+assert(unlockSoonScore > unlockLaterScore,
+    string.format("session unlocking in 15m (%f) must rank higher than session unlocking in 4h (%f)", unlockSoonScore, unlockLaterScore))
+
+-- 11. Domain Helper & Transformation Unit Tests
 assert(shared.WINDOW_5H == 18000, "WINDOW_5H must be 18000s")
 assert(shared.WINDOW_7D == 604800, "WINDOW_7D must be 604800s")
 assert(shared.isConfigured({ status = "ready" }) == true, "ready provider is configured")

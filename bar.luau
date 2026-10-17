@@ -450,9 +450,21 @@ local function formatDualMetric(m1, m2)
     -- the shorter session reset would promise availability while the weekly
     -- limit still blocks the model.
     local blocking = shared.blockingMetric(m1 and { m1, m2 } or { m2 })
-    local left = blocking ~= nil and fixedCountdown(blocking) or ""
-    if left == "" and m1 ~= nil then left = fixedCountdown(m1) end
-    if left == "" and m2 ~= nil then left = fixedCountdown(m2) end
+    local c1 = m1 ~= nil and fixedCountdown(m1) or ""
+    local c2 = m2 ~= nil and fixedCountdown(m2) or ""
+
+    local left = ""
+    local p1Num = tonumber(p1) or 0
+    local p2Num = tonumber(p2) or 0
+    if blocking ~= nil and (p2Num >= 100 or p1Num < 100) then
+        left = fixedCountdown(blocking)
+    elseif c1 ~= "" and c2 ~= "" then
+        left = string.format("%s · 7d: %s", c1, c2)
+    elseif c1 ~= "" then
+        left = c1
+    elseif c2 ~= "" then
+        left = c2
+    end
 
     local val = str1
     if str2 ~= nil and str2 ~= "" then

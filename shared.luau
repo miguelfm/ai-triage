@@ -1385,7 +1385,9 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
     end
     -- If session quota is 100% exhausted, provider waits for the 5h reset
     if sMetric ~= nil and sPct >= 100 then
-        return -300 - wPct
+        local sAt = M.parseIso(sMetric.reset_at)
+        local sRem = (sAt and sAt > nowTime) and (sAt - nowTime) or 18000
+        return -300 - math.min(99.0, (sRem / 3600.0) * 10.0) - (wPct * 0.05)
     end
 
     ----------------------------------------------------------------------
@@ -1434,12 +1436,31 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         local oneSessionPct = 100.0 / gearing
         local lowHeadroomPct = math.min(30.0, math.max(8.0, oneSessionPct * 0.80))
 
+        -- Temporal distribution & anti-burst smoothing (prevents concentration of usage followed by voids):
+        -- When there are still many active hours left in the week (H_w > 24.0) and not fast-tracking:
+        -- Evaluate pacing relative to elapsed time in the 7-day cycle.
+        local paceSmooth = 1.0
+        if H_w > 24.0 and not isStaggerLeader and wMetric.window_secs then
+            local wWindow = tonumber(wMetric.window_secs) or 604800
+            local wRemSecs = (wAt and wAt > nowTime) and (wAt - nowTime) or 0
+            local wElapsedRatio = math.min(1.0, math.max(0.0, (wWindow - wRemSecs) / wWindow))
+            local expectedBurn = wElapsedRatio * 100.0
+            local overPace = wPct - expectedBurn
+            if overPace > 15.0 then
+                -- Ahead of pace: smoothly dampen to avoid exhausting quota days before renewal
+                paceSmooth = math.max(0.35, 1.0 - 0.02 * (overPace - 15.0))
+            elseif overPace < -15.0 then
+                -- Behind pace: gently favor to ensure smooth utilization of available quota
+                paceSmooth = math.min(1.35, 1.0 + 0.015 * (-overPace - 15.0))
+            end
+        end
+
         if wFree <= lowHeadroomPct and H_w > 24.0 and not isStaggerLeader then
-            wFactor = 0.08 + 0.15 * (wFree / lowHeadroomPct)
+            wFactor = (0.08 + 0.15 * (wFree / lowHeadroomPct)) * paceSmooth
         else
-            -- Continuous weighting function: smooth scaling
+            -- Continuous weighting function: smooth scaling modulated by temporal pacing
             local maxWeight = isStaggerLeader and 2.20 or 1.80
-            wFactor = math.min(maxWeight, math.max(0.20, 0.40 + 0.60 * gearedPi_w))
+            wFactor = math.min(maxWeight, math.max(0.20, (0.40 + 0.60 * gearedPi_w) * paceSmooth))
         end
 
         -- Time-arbitrage and perishability urgency for imminent weekly reset (<= 24 active hours):

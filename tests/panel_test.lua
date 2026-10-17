@@ -276,4 +276,15 @@ assert(has(spentLabels, "Optimal Reset Window!") and has(spentLabels, "CLAIM NOW
     "a spent week with days left must recommend the claim")
 assert(mentions(spentLabels, "claim now: ~100% of a week back"), "the claim must state what it buys back")
 
+-- Weekly Reset Schedule (7d) visibility in Column 3
+assert(has(holdLabels, "Weekly Reset Schedule (7d)"), "Column 3 must display the Weekly Reset Schedule (7d)")
+
+-- Imminent weekly renewal alert in Column 3 when unspent quota is at risk
+local imminentReport = { entries = {
+    creditEntry("openai", "Codex", 60, 2.5, { 238 }),
+} }
+local imminentLabels = labels(loadPanel(imminentReport, nil, calendarConfig))
+assert(has(imminentLabels, "Weekly Reset Imminent!"), "imminent weekly renewal with free quota must trigger Column 3 alert")
+assert(mentions(imminentLabels, "resets in 2.5h"), "alert must display remaining hours")
+
 io.write("ok: panel rendering, typography, and rounded session estimates with precise calibration\n")

@@ -283,7 +283,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
     local throttleSummary = nil
     if percent >= 75 and remainingSecs > (isWeekly and 172800 or 3600) then
         shouldThrottle = true
-    elseif paceDiff <= -15 and percent >= 60 then
+    elseif paceDiff <= -15 and percent >= 60 and remainingSecs > (isWeekly and 86400 or 3600) then
         shouldThrottle = true
     elseif isWeekly and gearing <= 3.5 and percent >= 45 and remainingSecs > 172800 then
         shouldThrottle = true
@@ -1079,6 +1079,31 @@ local function renderColumns(candidates, typo)
         creditCards[#creditCards + 1] = renderCreditCard(credit, typo)
     end
 
+    local weeklySchedules = {}
+    local seenWeekly = {}
+    for _, item in ipairs(modelItems) do
+        local wM = item.weeklyMetric
+        local baseId = shared.baseProvider(item.providerId or (item.entry and item.entry.id))
+        if wM and not seenWeekly[baseId] then
+            seenWeekly[baseId] = true
+            local at = parseIso(wM.reset_at)
+            local wWindow = tonumber(wM.window_secs) or 604800
+            local remSecs = (at and at > os.time()) and (at - os.time()) or wWindow
+            local wPct = tonumber(wM.percent) or 0
+            local wFree = math.max(0, 100 - wPct)
+            weeklySchedules[#weeklySchedules + 1] = {
+                baseId = baseId,
+                name = item.name or (item.entry and item.entry.display_name) or baseId,
+                glyph = item.glyph or shared.providerGlyph(baseId),
+                resetAt = at,
+                remainingSecs = remSecs,
+                percent = wPct,
+                free = wFree,
+            }
+        end
+    end
+    table.sort(weeklySchedules, function(a, b) return a.remainingSecs < b.remainingSecs end)
+
     if staggerPlan and staggerPlan.hasCollision then
         local advanceName = staggerPlan.advanceName or "Claude"
         local deferName = staggerPlan.deferName or "Codex"
@@ -1114,12 +1139,12 @@ local function renderColumns(candidates, typo)
             ui.row({ gap = 6, align = "center" }, {
                 ui.glyph({ name = "calendar-clock", size = gs(15), color = "primary" }),
                 ui.label({
-                    text = string.format("Reset Plan (Collision in %.0fd)", staggerPlan.daysUntilExpiry or 12),
+                    text = string.format("Manual Credits Strategy (Collision in %.0fd)", staggerPlan.daysUntilExpiry or 12),
                     fontSize = fs(13), fontWeight = "bold", color = "primary",
                 }),
             }),
             ui.label({
-                text = string.format("%s & %s expire together (~%s). Staggering strategy:", advanceName, deferName, expiryDay),
+                text = string.format("%s & %s manual credits expire together (~%s). Staggering strategy:", advanceName, deferName, expiryDay),
                 fontSize = fs(11), color = "on_surface_variant",
             }),
             ui.row({ gap = 6, align = "start" }, {
@@ -1138,6 +1163,34 @@ local function renderColumns(candidates, typo)
             }),
         })
         table.insert(creditCards, 1, stratCard)
+    end
+
+    if #weeklySchedules > 0 then
+        local scheduleRows = {}
+        for _, ws in ipairs(weeklySchedules) do
+            local dateStr = ws.resetAt and string.format("%s %s", os.date("%a", ws.resetAt), noctalia.formatTime(noctalia.timeFormat(), ws.resetAt)) or "--:--"
+            local remStr = formatSeconds(ws.remainingSecs)
+            scheduleRows[#scheduleRows + 1] = ui.row({ gap = 6, align = "center" }, {
+                ui.glyph({ name = ws.glyph, size = gs(13), color = "secondary" }),
+                ui.label({ text = ws.name, fontSize = fs(12), fontWeight = "semibold", color = "on_surface" }),
+                ui.spacer({ flexGrow = 1 }),
+                ui.label({
+                    text = string.format("%s (%s)", dateStr, remStr),
+                    fontSize = fs(11), color = "on_surface_variant",
+                }),
+            })
+        end
+        local scheduleCard = ui.column(cardStyle(5, nil, nil, 8), {
+            ui.row({ gap = 6, align = "center" }, {
+                ui.glyph({ name = "calendar", size = gs(14), color = "secondary" }),
+                ui.label({
+                    text = "Weekly Reset Schedule (7d)",
+                    fontSize = fs(13), fontWeight = "bold", color = "secondary",
+                }),
+            }),
+            ui.column({ gap = 4, align = "stretch" }, scheduleRows),
+        })
+        table.insert(creditCards, 1, scheduleCard)
     end
 
     for baseId, isClaim in pairs(staggerPlan and staggerPlan.optimalClaimProviders or {}) do
@@ -1175,6 +1228,31 @@ local function renderColumns(candidates, typo)
             table.insert(creditCards, 1, claimCard)
         end
     end
+
+    -- Urgent weekly reset alerts: prominently displayed at the top of Column 3
+    for _, ws in ipairs(weeklySchedules) do
+        if ws.remainingSecs <= 48 * 3600 and ws.free >= 10 then
+            local remHours = math.max(0.1, ws.remainingSecs / 3600)
+            local timeStr = remHours < 24 and string.format("%.1fh", remHours) or string.format("%.1fd", remHours / 24)
+            local dateStr = ws.resetAt and string.format("%s %s", os.date("%a", ws.resetAt), noctalia.formatTime(noctalia.timeFormat(), ws.resetAt)) or ""
+            local alertCard = ui.column(cardStyle(4, "error/0.08", "error/0.30", 8), {
+                ui.row({ gap = 6, align = "center" }, {
+                    ui.glyph({ name = "flame", size = gs(15), color = "#fb923c" }),
+                    ui.label({
+                        text = "Weekly Reset Imminent!",
+                        fontSize = fs(13), fontWeight = "bold", color = "#fb923c",
+                    }),
+                }),
+                ui.label({
+                    text = string.format("%s resets in %s (%s) · %d%% unused quota will expire!",
+                        ws.name, timeStr, dateStr, ws.free),
+                    fontSize = fs(11), color = "on_surface",
+                }),
+            })
+            table.insert(creditCards, 1, alertCard)
+        end
+    end
+
     if #creditCards == 0 then
         creditCards[#creditCards + 1] = ui.column(cardStyle(6, nil, nil, 10), {
             ui.row({ gap = 8, align = "center" }, {
@@ -1256,9 +1334,9 @@ local function renderColumns(candidates, typo)
                 width = colHeaderBoxSize, height = colHeaderBoxSize, radius = 7,
                 fill = "primary/0.14", align = "center", justify = "center",
             }, {
-                ui.glyph({ name = "ticket", size = gs(18), color = "primary" }),
+                ui.glyph({ name = "calendar-clock", size = gs(18), color = "primary" }),
             }),
-            ui.label({ text = "Reset Credits", fontSize = fs(18), fontWeight = "bold", color = "on_surface" }),
+            ui.label({ text = "Resets & Credits", fontSize = fs(18), fontWeight = "bold", color = "on_surface" }),
         }),
         ui.separator({ orientation = "horizontal", color = "outline", opacity = 0.16 }),
         ui.scroll({ flexGrow = 1, gap = 6, align = "stretch" }, creditCards),

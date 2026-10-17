@@ -644,5 +644,23 @@ local inheritedPercent = findNode(inheritedBar.rendered(), function(n) return n.
 assert(inheritedPercent and inheritedPercent.props.fontSize == 13,
     "Inherited large font_scale must scale 11px font to 13px, got " .. tostring(inheritedPercent and inheritedPercent.props.fontSize))
 
+-- Dual window countdown tooltip visibility (session + weekly)
+local dualWindowEntry = {
+    id = "openai",
+    display_name = "Codex",
+    plan = "Plus",
+    status = "ready",
+    metrics = {
+        { label = "Session", percent = 50, window_secs = 18000, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 10800) },
+        { label = "Weekly", percent = 20, window_secs = 604800, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 471600) },
+    },
+}
+local dualBar = loadBar({ vendor = "openai" }, { entries = { dualWindowEntry } })
+local dualRows = dualBar.tooltip()
+assert(#dualRows == 2 and dualRows[1].value == "50% / 20%", "dual metric should display both percentages")
+assert(dualRows[2].key == "Reset" and dualRows[2].value:find("3h") and dualRows[2].value:find("7d: 5d 11h"),
+    "dual metric tooltip should display both session and weekly countdowns: got " .. tostring(dualRows[2].value))
+
 io.write("ok: account selection, unavailable providers, steady capsule, and typography scaling in bar\n")
+
 
