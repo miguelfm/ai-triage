@@ -245,5 +245,22 @@ Headless, non-interactive priming commands send a single token to start rolling 
 Execution guardrails:
 - Redirects stdin from `/dev/null` to prevent terminal freezes.
 - Runs with isolated working directory (`/tmp`) to prevent repo pollution.
-- Completely suppressed when weekly quota is $100\%$ depleted.
 - **State persistence & clock resolution**: Priming events notify Noctalia via IPC (`kickstart` event), persisting session initiation timestamps in `noctalia.state`. Even at $0\%$ quota consumption, the panel immediately unlocks and displays the active expiration clock time (rather than an unstarted `--:--` placeholder), transitions the session status indicator to `5h rolling`, and suppresses redundant kickstart triggers.
+
+---
+
+## 5. Service & Model Visibility Filtering
+
+### 5.1 Architecture & Objectives
+Users often have subscriptions to multi-model providers (e.g. Google Antigravity) that report disparate tiers under a unified account (such as **Gemini 2.5 Pro / Flash** alongside third-party pass-through tiers like **Claude & GPT OSS**). In many workflows, third-party sub-tiers are unutilized, have lower quality thresholds, or exhaust rapidly, introducing UI clutter and false critical alarms.
+
+The filtering subsystem provides granular control via two settings:
+1. `hide_claude_oss` (`bool`, default `false`): Dedicated toggle to eliminate the Claude & GPT OSS tier from Antigravity while retaining full monitoring for Gemini.
+2. `hidden_services` (`string`, default `""`): Comma-delimited list of provider or model identifiers to omit from display and triage.
+
+### 5.2 Mathematical & Algorithmic Implications
+- **Candidate Filtering**: Hidden services and sub-models are filtered during candidate discovery (`M.isModelHidden(providerId, modelName)`). They are excluded from the optimization set $\mathcal{M}$ before triage score calculations.
+- **Decoupled Exhaustion Lockouts**: In multi-model providers, exhaustion of a sub-tier ($U_{i} \ge 100\%$) previously triggered a critical lock on the parent entry. The filtering subsystem excludes hidden metrics from `blockingMetric(metrics, providerId)`, ensuring that exhaustion of Claude & GPT OSS never colors the bar capsule red or flags Antigravity as depleted when Gemini still possesses usable headroom.
+- **Preservation of Distinct Providers**: String matching safeguards ensure direct Anthropic Claude subscriptions (`id = "anthropic"`) are never conflated with Antigravity's third-party Claude OSS tier.
+- **Triage Matrix Synchronization**: Filtering cascades seamlessly across all three panel columns (Session, Weekly, Schedules) and the status bar capsule, keeping per-row coordination intact without rendering empty or misaligned slots.
+
