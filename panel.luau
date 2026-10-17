@@ -1099,6 +1099,17 @@ local function renderColumns(candidates, typo)
         else
             advanceStep = string.format("1. %s: %s", advanceName, leaderAdvice.summary)
         end
+        local deferStats = providerStats and providerStats[staggerPlan.deferProviderId]
+        local deferStep
+        local deferColor = "outline"
+        local deferTextColor = "on_surface_variant"
+        if deferStats and deferStats.advice and deferStats.advice.lastChance then
+            deferStep = string.format("2. Sprint %s as well: credit expires this cycle (~%s), burn before renewal.", deferName, expiryDay)
+            deferColor = "#38bdf8"
+            deferTextColor = "on_surface"
+        else
+            deferStep = string.format("2. Defer %s: keep its reset credit for its next cycle after renewal.", deferName)
+        end
         local stratCard = ui.column(cardStyle(4, nil, nil, 8), {
             ui.row({ gap = 6, align = "center" }, {
                 ui.glyph({ name = "calendar-clock", size = gs(15), color = "primary" }),
@@ -1119,10 +1130,10 @@ local function renderColumns(candidates, typo)
                 }),
             }),
             ui.row({ gap = 6, align = "start" }, {
-                ui.glyph({ name = "arrow-right", size = gs(12), color = "outline" }),
+                ui.glyph({ name = "arrow-right", size = gs(12), color = deferColor }),
                 ui.label({
-                    text = string.format("2. Defer %s: keep its reset credit for its last cycle before it expires.", deferName),
-                    fontSize = fs(11), color = "on_surface_variant", flexGrow = 1,
+                    text = deferStep,
+                    fontSize = fs(11), color = deferTextColor, flexGrow = 1,
                 }),
             }),
         })

@@ -594,7 +594,7 @@ end
 --
 -- Capacity runs at full 5h-session pace, each session spending 100/gearing % of
 -- the week, the same C_max the weekly triage uses.
-M.CLAIM_MIN_WEEKLY_PCT = 99 -- the week is effectively spent
+M.CLAIM_MIN_WEEKLY_PCT = 95 -- the week is effectively spent
 M.CLAIM_VALUE_RATIO = 0.5   -- spend it now only for at least half of what it is worth later
 
 local function sessionCapacity(activeHours, gearing)
@@ -627,30 +627,45 @@ local function adviseResetCredit(stats, gearing, nowTime, config)
     local cycleGain = cycleClaimGain(cycleHours, expiryHours, wFree, gearing)
 
     -- The next cycle starts at 0%: the whole week has to be burnt before a claim pays.
+    -- To meaningfully defer to the next cycle, the credit must survive deep enough
+    -- into the next cycle (at least 3.0 days / 72h) and allow burning at least ~40%
+    -- of the fresh week naturally. Credits expiring on the same day as renewal or
+    -- within 72h cannot be deferred — this cycle is their last viable chance.
     local laterGain = 0.0
-    if expiresAt > renewAt then
+    local minDeferRunwaySecs = 3 * 86400
+    if expiresAt > (renewAt + minDeferRunwaySecs) then
         local nextEnd = renewAt + window
         local nextHours = M.calculateActiveHours(renewAt, nextEnd, config, false)
         local nextExpiry = expiresAt >= nextEnd and math.huge
             or M.calculateActiveHours(renewAt, expiresAt, config, false)
-        laterGain = cycleClaimGain(nextHours, nextExpiry, 100.0, gearing)
+        local minBurnHours = 40.0 * gearing / 20.0
+        if nextExpiry >= minBurnHours then
+            laterGain = cycleClaimGain(nextHours, nextExpiry, 100.0, gearing)
+        end
     end
 
     local oneSession = 100.0 / gearing
-    local worthIt = cycleGain >= oneSession and cycleGain >= M.CLAIM_VALUE_RATIO * laterGain
+    local lastChance = (expiresAt <= renewAt + minDeferRunwaySecs)
+        or (laterGain < math.max(40.0, oneSession))
+        or (cycleGain >= 50.0 and laterGain < cycleGain * 0.65)
+
+    local worthIt = cycleGain >= oneSession and (laterGain == 0.0 or cycleGain >= M.CLAIM_VALUE_RATIO * laterGain)
     local spent = stats.weeklyPercent >= M.CLAIM_MIN_WEEKLY_PCT
     local expiryFirst = expiryHours < wFree * gearing / 20.0
     local renewIn = formatDuration(renewAt - nowTime)
     local expiresIn = formatDuration(expiresAt - nowTime)
 
+    local perilExpiry = expiryHours <= 4.0 or (expiresAt - nowTime) <= (6 * 3600)
+    local canClaimPeril = perilExpiry and (stats.weeklyPercent >= 80 or nowGain >= oneSession)
+
     local advice = {
         nowGain = nowGain,
         cycleGain = cycleGain,
         laterGain = laterGain,
-        lastChance = laterGain < oneSession,
+        lastChance = lastChance,
         sessionsToSpend = wFree / oneSession,
     }
-    if worthIt and (spent or (expiryFirst and expiryHours <= 1.0)) then
+    if worthIt and (spent or canClaimPeril or (expiryFirst and expiryHours <= 2.0)) then
         advice.status = "claim"
         advice.summary = spent
             and string.format("Weekly quota spent · claim now: ~%d%% of a week back before the renewal in %s",
@@ -659,11 +674,16 @@ local function adviseResetCredit(stats, gearing, nowTime, config)
                 expiresIn, math.floor(nowGain + 0.5))
     elseif worthIt then
         advice.status = "advance"
-        advice.summary = expiryFirst
-            and string.format("Claim before the credit expires in %s · worth ~%d%% of a week",
+        if lastChance and (renewAt - nowTime) <= (7 * 86400) and not expiryFirst then
+            advice.summary = string.format("Claim before renewal in %s · burn remaining %d%% early · worth ~%d%% of a week",
+                renewIn, math.floor(wFree + 0.5), math.floor(cycleGain + 0.5))
+        elseif expiryFirst then
+            advice.summary = string.format("Claim before the credit expires in %s · worth ~%d%% of a week",
                 expiresIn, math.floor(cycleGain + 0.5))
-            or string.format("Claim once this week runs out · worth ~%d%% of a week",
+        else
+            advice.summary = string.format("Claim once this week runs out · worth ~%d%% of a week",
                 math.floor(cycleGain + 0.5))
+        end
     else
         advice.status = "hold"
         advice.summary = laterGain > cycleGain
@@ -1424,10 +1444,11 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
 
         -- Time-arbitrage and perishability urgency for imminent weekly reset (<= 24 active hours):
         -- Reflects that quotas expire permanently if not consumed.
-        -- When active hours <= 24h, remaining 5h sessions are scarce (e.g. <= 2 sessions left).
-        if H_w <= 24.0 and wFree > 0.5 then
-            local ratio = math.min(8.0, (24.0 / math.max(0.5, H_w)) ^ 1.25)
-            local sprintBonus = H_w <= 3.0 and (220.0 * (3.0 - H_w) / 3.0) or 0.0
+        -- When active hours <= 24h (or targetH_w <= 24h for fast-track leaders), remaining 5h sessions are scarce.
+        local sprintH = isStaggerLeader and targetH_w or H_w
+        if sprintH <= 24.0 and wFree > 0.5 then
+            local ratio = math.min(8.0, (24.0 / math.max(0.5, sprintH)) ^ 1.25)
+            local sprintBonus = sprintH <= 3.0 and (220.0 * (3.0 - sprintH) / 3.0) or 0.0
             uResetWeekly = 50.0 + sprintBonus + (wFree * 4.0 * ratio)
         end
 

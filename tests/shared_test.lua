@@ -447,6 +447,49 @@ assert(#multiCards == 2, "both credits are listed")
 assert(multiCards[1].role == "claim" and multiCards[1].advice ~= nil, "the earliest credit is the one to claim")
 assert(multiCards[2].role == nil and multiCards[2].advice == nil, "later credits stay unclaimed")
 
+-- Same-day renewal and credit expiration (e.g. Codex renewing in 5d on Oct 22 and expiring on Oct 22)
+local sameDayCandidate = {
+    id = "openai",
+    display_name = "Codex",
+    metrics = {
+        { label = "Codex weekly", percent = 20, reset_at = isoIn(120 * 3600), window_secs = 604800 },
+    },
+    reset_credits = {
+        available = 3,
+        credits = {
+            { title = "Credit 1", expires_at = isoIn(120 * 3600) },
+            { title = "Credit 2", expires_at = isoIn(288 * 3600) },
+        },
+    },
+}
+local sameDayPlan, sameDayStats = shared.analyzeResetCredits({ sameDayCandidate }, os.time(), calendarHours)
+local sameDayCodex = sameDayStats["openai"]
+assert(sameDayCodex.advice.lastChance == true, "credit expiring on the same day as renewal must be flagged lastChance")
+assert(sameDayCodex.advice.status == "advance", "must advance to burn quota before renewal, not hold")
+assert(sameDayCodex.advice.laterGain == 0.0, "cannot defer to next cycle when expiring on renewal day")
+assert(sameDayPlan.fastTrack["openai"] == true, "same-day expiring credit must be fast-tracked")
+
+-- Collision between a provider with runway in next cycle (Claude) and one expiring on renewal day (Codex):
+-- Codex must be chosen as advance leader despite having more credits in reserve (3 vs 1)
+local collisionRunwayReport = {
+    {
+        id = "anthropic",
+        display_name = "Claude",
+        metrics = {
+            { label = "Weekly", percent = 70, reset_at = isoIn(72 * 3600), window_secs = 604800 },
+        },
+        reset_credits = {
+            available = 1,
+            credits = { { title = "Claude reset", expires_at = isoIn(260 * 3600) } },
+        },
+    },
+    sameDayCandidate,
+}
+local colRunwayPlan, colRunwayStats = shared.analyzeResetCredits(collisionRunwayReport, os.time(), calendarHours)
+assert(colRunwayPlan.advanceName == "Codex", "Codex with imminent same-day expiry must be chosen to advance over Claude")
+assert(colRunwayStats["openai"].advice.status == "advance", "Codex must remain in advance")
+assert(colRunwayPlan.fastTrack["openai"] == true, "Codex must be fast-tracked in collision")
+
 -- 6. Schedule-aware active working hours calculation
 local cfg = {
     scheduleAware = true,
