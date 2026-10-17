@@ -171,21 +171,24 @@ where $R$ is the natural renewal. Claiming 5h before $R$ therefore buys back one
 
 The engine compares two quantities:
 - **This cycle** ($G_{\text{cycle}}$): burn $w_{\text{free}}$ at full pace, claim as soon as it runs out (or right before the credit expires), then burn the refill until $R$.
-- **Next cycle** ($G_{\text{later}}$): the same from $R$ with the week at $0\%$, as long as the credit outlives $R$; $0$ otherwise.
+- **Next cycle** ($G_{\text{later}}$): evaluated only if the credit outlives the renewal by at least a viable runway ($E > R + 72\text{h}$) and allows burning at least $\approx 40\%$ of the fresh week naturally. For credits expiring on the same day as renewal or within 72h, $G_{\text{later}} = 0$.
+
+A credit is flagged as **`lastChance = true`** whenever:
+$$E \le R + 72\text{h} \quad\lor\quad G_{\text{later}} < \max(40, 100/K_m) \quad\lor\quad G_{\text{later}} < 0.65\, G_{\text{cycle}}$$
 
 It recommends:
-- **`claim`** when the week is spent ($U_{i,w} \ge 99\%$), or the credit expires within the next active hour, and $G_{\text{cycle}} \ge \max(100 / K_m,\ 0.5\, G_{\text{later}})$.
-- **`advance`** when that condition on $G_{\text{cycle}}$ holds but the week is not spent yet: claim once it runs out.
+- **`claim`** when the week is effectively spent ($U_{i,w} \ge 95\%$), or the credit is in imminent expiry peril ($\tau_{\text{expiry}} \le 6\text{h}$ calendar or $H_{\text{expiry}} \le 4\text{h}$ active with $U_{i,w} \ge 80\%$), and $G_{\text{cycle}} \ge \max(100 / K_m,\ 0.5\, G_{\text{later}})$.
+- **`advance`** when that condition on $G_{\text{cycle}}$ holds but the week is not ready to claim yet. If `lastChance` is active, the engine advises a proactive sprint before renewal.
 - **`hold`** otherwise, showing $G_{\text{cycle}}$ against $G_{\text{later}}$.
 
-When $G_{\text{later}} < 100 / K_m$, the current cycle is the credit's last chance and the provider is fast-tracked.
+When a credit is on its `lastChance` (or chosen as advance leader), it enters `fastTrack` mode, compressing the target weekly horizon to half the cycle ($\text{target}H_w = \max(6.0, 0.5\, H_w)$) and engaging urgency sprint scoring whenever $\text{target}H_w \le 24\text{h}$.
 
 ### 2.3 Desynchronization Algorithm
 1. **Collision Detection**: Identifies expiring credits across distinct providers separated by $< 7$ days within a 16-day window.
 2. **Advance Leader Selection**:
-   - Compares reserve scarcity ($1 / \text{available}$) and cycle progress (or proximity to a fresh post-renewal cycle) without heuristic magic numbers.
-   - Designates the leader (e.g. Claude) to **Advance**: burn its remaining weekly quota early ($\approx 3.5\text{d} / 45\text{h}$ active time) and claim its reset credit mid-cycle. When its current cycle is too short for the claim to pay, the advance starts from its next renewal and the current cycle is not fast-tracked.
-   - Designates the secondary provider (e.g. Codex) to **Defer**: keep its reset credit for its last cycle before expiry.
+   - Evaluates reserve scarcity and cycle progress. Providers on their `lastChance` receive an immediate $+100\text{pt}$ fitness priority to prevent credit forfeiture, regardless of nominal total reserves.
+   - Designates the leader to **Advance**: burn remaining weekly quota early ($\approx 3.5\text{d} / 45\text{h}$ active time) and claim its reset credit mid-cycle.
+   - For the secondary provider: if its credit also expires in this cycle (`lastChance = true`), it is **never deferred to `hold`**; both providers are fast-tracked and directed to sprint and claim before expiration. Only credits with safe runway into the subsequent cycle are deferred.
 3. **Claim Window**:
    - When a provider's advice is `claim`, the engine generates a prominent `⭐ Claim Reset` action card with the quota it buys back and a one-click dashboard link (`xdg-open`). Only the earliest-expiring credit of a provider is marked to claim.
 
