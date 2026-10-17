@@ -48,6 +48,7 @@ Install the respective CLI for any backend provider you wish to prime.
 - **Weekly Cycles Schedule & Imminent Renewal Alerts (Column 3)**: Disambiguates automatic 7-day natural renewal cycles from promotional on-demand reset credits. Column 3 features a dedicated schedule card showing exact natural reset dates and countdowns for all configured providers, accompanied by high-visibility alerts when weekly quota is expiring within $\le 48\text{h}$ with unused headroom.
 - **Reset Credit Collision & Staggering Engine**: Detects concurrent on-demand reset credit expirations across providers (e.g. Claude and Codex expiring in the same week). Protects against credit forfeiture when a credit expires on the same day as the weekly renewal by enforcing a minimum 3-day runway for deferrals, triggering last-chance sprint burn, and desynchronizing collisions. Recommends claiming a reset (`⭐ Claim Reset`) once the week is spent ($\ge 95\%$) or when nearing expiration peril, with one-click dashboard access.
 - **Streamlined Triage Panel**: An aligned, three-column ranking view displaying provider identity, dynamic urgency score, real-time status badges, weekly renewal timeline, and credit staggering strategy. The top row is always your optimal routing choice.
+- **Service & Model Visibility Filtering**: Allows hiding specific sub-models or third-party tiers (such as Antigravity's "Claude & GPT OSS") via `hide_claude_oss` or `hidden_services` while retaining full visibility, pacing, and telemetry for other tiers like Gemini, Codex, or Claude Pro across both the status bar capsule and the triage panel. Hidden exhausted tiers are excluded from blocking warnings.
 - **Adaptive Geometry & Native Scrolling**: Calibrated 780px panel height with per-column native scrolling (`ui.scroll`) to fit all standard model cards, renewal timelines, and reset credits comfortably across typography presets (including Huge / 130%) with zero clipping.
 
 ## Usage
@@ -86,6 +87,8 @@ Plugin-level settings (shared across poller, capsules, and panel):
 | `weekend_sleep_start_hour` | `int` | `1` | Weekend sleep/off-hours start hour (0 to 23; 1 = 1 AM). Visible when schedule-aware triage is enabled. |
 | `weekend_sleep_end_hour` | `int` | `9` | Weekend wake-up / active hours start hour (0 to 23; 9 = 9 AM). Visible when schedule-aware triage is enabled. |
 | `meal_pause_hours` | `int` | `1` | Estimated daily pause hours for lunch/breaks (0 to 3). Visible when schedule-aware triage is enabled. |
+| `hide_claude_oss` | `bool` | `false` | Hides the Claude & GPT OSS tier from Antigravity in both the bar and panel, keeping Gemini active. |
+| `hidden_services` | `string` | `""` | *(Advanced)* Comma-separated list of provider or model IDs to hide from both bar and panel (e.g. `claude-oss, moonshot`). |
 | `gearing_claude_oss` | `double` | `2.5` | *(Advanced)* Sessions per week for Claude & GPT OSS (1 session burns ~40% weekly quota). Calibrated dynamically by telemetry. |
 | `gearing_gemini` | `double` | `8.0` | *(Advanced)* Sessions per week for Gemini (1 session burns ~12.5% weekly quota). Calibrated dynamically by telemetry. |
 | `gearing_anthropic` | `double` | `7.0` | *(Advanced)* Sessions per week for Claude Pro (1 session burns ~14.3% weekly quota). Calibrated dynamically by telemetry. |

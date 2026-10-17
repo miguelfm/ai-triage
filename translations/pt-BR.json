@@ -69,6 +69,14 @@
       "description": "Horas estimadas de pausa durante o dia para almoço, jantar ou descanso.",
       "label": "Pausa diária para refeições (horas)"
     },
+    "hide_claude_oss": {
+      "description": "Oculta o nível Claude & GPT OSS do Antigravity na barra e no painel, mantendo o Gemini ativo.",
+      "label": "Ocultar Claude & GPT OSS"
+    },
+    "hidden_services": {
+      "description": "Lista separada por vírgulas de IDs de provedores ou modelos para ocultar da barra e do painel.",
+      "label": "Serviços e modelos ocultos"
+    },
     "gearing_claude_oss": {
       "description": "Estimativa de sessões completas de 5h por cota semanal para Claude & GPT OSS. O painel mostra números inteiros; os cálculos e a calibração automática mantêm a precisão decimal.",
       "label": "Razão de escalonamento: Claude & GPT OSS (sessões/sem)"

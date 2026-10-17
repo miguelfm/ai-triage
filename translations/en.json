@@ -73,6 +73,14 @@
       "description": "Estimated inactive hours during daytime for lunch, dinner, or rest breaks.",
       "label": "Daily meal & break pause (hours)"
     },
+    "hide_claude_oss": {
+      "description": "Hides the Claude & GPT OSS tier from Antigravity in both the bar and panel, keeping Gemini active.",
+      "label": "Hide Claude & GPT OSS"
+    },
+    "hidden_services": {
+      "description": "Comma-separated list of provider or model IDs to hide from both the bar and panel (e.g. claude-oss, moonshot).",
+      "label": "Hidden services & models"
+    },
     "gearing_claude_oss": {
       "description": "Estimated full 5h sessions per weekly quota for Claude & GPT OSS. The panel displays whole numbers; calculations and automatic calibration retain decimal precision.",
       "label": "Gearing ratio: Claude & GPT OSS (sessions/wk)"

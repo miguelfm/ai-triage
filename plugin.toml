@@ -1,6 +1,6 @@
 id = "miguelfm/ai-triage"
 name = "AI Triage"
-version = "1.4.0"
+version = "1.5.0"
 plugin_api = 22
 author = "miguelfm"
 license = "MIT"
@@ -102,6 +102,23 @@ min = 0
 max = 3
 step = 1
 visible_when = { key = "schedule_aware_triage", values = ["true"] }
+
+# Service & model filtering: Allows hiding specific models or providers.
+
+[[setting]]
+key = "hide_claude_oss"
+type = "bool"
+label_key = "settings.hide_claude_oss.label"
+description_key = "settings.hide_claude_oss.description"
+default = false
+
+[[setting]]
+key = "hidden_services"
+type = "string"
+label_key = "settings.hidden_services.label"
+description_key = "settings.hidden_services.description"
+default = ""
+advanced = true
 
 # Gearing ratios: Decimal numbers (sessions per weekly quota).
 # Automatically calibrated at runtime from usage telemetry unless customized here.

@@ -340,14 +340,55 @@ local function isCritical(metric)
 end
 M.isCritical = isCritical
 
+function M.isModelHidden(providerId, modelName)
+    local hideOss = false
+    local hiddenList = ""
+    if noctalia and type(noctalia.getConfig) == "function" then
+        hideOss = noctalia.getConfig("hide_claude_oss") == true
+        hiddenList = tostring(noctalia.getConfig("hidden_services") or "")
+    end
+    local pid = tostring(providerId or ""):lower()
+    local name = tostring(modelName or ""):lower()
+
+    if hideOss then
+        if pid == "claude-oss" or pid == "claude_oss"
+            or name:find("oss", 1, true)
+            or (name:find("claude", 1, true) and not pid:find("anthropic")) then
+            return true
+        end
+    end
+
+    if hiddenList ~= "" then
+        for item in hiddenList:gmatch("[^,]+") do
+            local lowerItem = item:match("^%s*(.-)%s*$"):lower()
+            if lowerItem ~= "" then
+                if pid == lowerItem or name == lowerItem
+                    or (name ~= "" and name:find(lowerItem, 1, true))
+                    or (pid ~= "" and pid:find(lowerItem, 1, true)) then
+                    return true
+                end
+                if (lowerItem == "claude-oss" or lowerItem == "claude_oss" or lowerItem == "claudeoss")
+                    and (name:find("claude", 1, true) and name:find("oss", 1, true)) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 -- Severity is a warning, not proof of exhaustion. Only a full quota blocks use.
-function M.blockingMetric(metrics)
+function M.blockingMetric(metrics, providerId)
     local blocking = nil
     for _, metric in ipairs(metrics or {}) do
         if type(metric) == "table" and (tonumber(metric.percent) or 0) >= 100 then
-            local reset = M.parseIso(metric.reset_at) or -1
-            local previous = M.parseIso(blocking and blocking.reset_at) or -1
-            if blocking == nil or reset > previous then blocking = metric end
+            local lbl = tostring(metric.label or "")
+            if not M.isModelHidden(providerId or lbl, lbl) then
+                local reset = M.parseIso(metric.reset_at) or -1
+                local previous = M.parseIso(blocking and blocking.reset_at) or -1
+                if blocking == nil or reset > previous then blocking = metric end
+            end
         end
     end
     return blocking
@@ -358,15 +399,26 @@ function M.headline(entry)
     local metrics = entry.metrics
     if #metrics == 0 then return nil end
 
-    local blocking = M.blockingMetric(metrics)
+    local visibleMetrics = {}
+    for _, m in ipairs(metrics) do
+        if type(m) == "table" then
+            local lbl = tostring(m.label or "")
+            if not M.isModelHidden(entry.id, lbl) then
+                visibleMetrics[#visibleMetrics + 1] = m
+            end
+        end
+    end
+    if #visibleMetrics == 0 then visibleMetrics = metrics end
+
+    local blocking = M.blockingMetric(visibleMetrics, entry.id)
     if blocking ~= nil then return blocking end
 
-    -- 1. For Antigravity: always follow active session usage across models
+    -- 1. For Antigravity: always follow active session usage across visible models
     if M.baseProvider(entry.id) == "antigravity" then
         local seen = {}
         local best = nil
         local bestPct = -1
-        for _, metric in ipairs(metrics) do
+        for _, metric in ipairs(visibleMetrics) do
             if type(metric) == "table" and metric.label ~= nil and metric.label ~= "" then
                 local model = tostring(metric.label)
                 if not seen[model] then
@@ -383,7 +435,7 @@ function M.headline(entry)
     end
 
     -- Otherwise keep the primary window selected by the CLI.
-    for _, metric in ipairs(metrics) do
+    for _, metric in ipairs(visibleMetrics) do
         if type(metric) == "table" then return metric end
     end
     return nil
@@ -444,11 +496,13 @@ function M.modelHeadlines(entry)
     for _, metric in ipairs(entry.metrics) do
         if type(metric) == "table" and metric.label ~= nil and metric.label ~= "" then
             local model = tostring(metric.label)
-            if byModel[model] == nil then
-                byModel[model] = {}
-                order[#order + 1] = model
+            if not M.isModelHidden(entry.id, model) then
+                if byModel[model] == nil then
+                    byModel[model] = {}
+                    order[#order + 1] = model
+                end
+                byModel[model][#byModel[model] + 1] = metric
             end
-            byModel[model][#byModel[model] + 1] = metric
         end
     end
 
@@ -457,7 +511,7 @@ function M.modelHeadlines(entry)
         local modelMetrics = byModel[model]
         local sessionMetric, weeklyMetric = M.dualMetrics(modelMetrics)
         sessionMetric = sessionMetric or weeklyMetric
-        local blockingMetric = M.blockingMetric(modelMetrics)
+        local blockingMetric = M.blockingMetric(modelMetrics, entry.id)
         if sessionMetric ~= nil then
             result[#result + 1] = {
                 model = model,
@@ -544,8 +598,12 @@ function M.entries(report)
     for _, entry in ipairs(report.entries) do
         if type(entry) == "table" and not M.terminalAuth(entry)
             and (not M.unavailable(entry) or M.readFailure(entry)) then
-            visible[#visible + 1] = entry
-            positions[entry] = #visible
+            local id = entry.id
+            local name = entry.display_name or entry.name or entry.id
+            if not M.isModelHidden(id, name) then
+                visible[#visible + 1] = entry
+                positions[entry] = #visible
+            end
         end
     end
     table.sort(visible, function(a, b)
@@ -947,7 +1005,7 @@ function M.collectModelItems(candidates)
                         entry = entry,
                     }
                 end
-            else
+            elseif not M.isModelHidden(id, displayName) then
                 local sMetric, wMetric = M.dualMetrics(entry.metrics)
                 items[#items + 1] = {
                     providerId = id,
@@ -963,19 +1021,21 @@ function M.collectModelItems(candidates)
                 }
             end
         else
-            local sMetric, wMetric = M.dualMetrics(entry.metrics)
-            items[#items + 1] = {
-                providerId = id,
-                providerName = displayName,
-                plan = plan,
-                providerGlyph = M.providerGlyph(id),
-                name = displayName,
-                glyph = M.providerGlyph(id),
-                badge = nil,
-                sessionMetric = sMetric,
-                weeklyMetric = wMetric,
-                entry = entry,
-            }
+            if not M.isModelHidden(id, displayName) then
+                local sMetric, wMetric = M.dualMetrics(entry.metrics)
+                items[#items + 1] = {
+                    providerId = id,
+                    providerName = displayName,
+                    plan = plan,
+                    providerGlyph = M.providerGlyph(id),
+                    name = displayName,
+                    glyph = M.providerGlyph(id),
+                    badge = nil,
+                    sessionMetric = sMetric,
+                    weeklyMetric = wMetric,
+                    entry = entry,
+                }
+            end
         end
     end
     for _, item in ipairs(items) do

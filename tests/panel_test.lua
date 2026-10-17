@@ -286,5 +286,34 @@ local imminentReport = { entries = {
 local imminentLabels = labels(loadPanel(imminentReport, nil, calendarConfig))
 assert(has(imminentLabels, "Weekly Reset Imminent!"), "imminent weekly renewal with free quota must trigger Column 3 alert")
 assert(mentions(imminentLabels, "resets in 2.5h"), "alert must display remaining hours")
+-- Service & Model Filtering in Panel (hide_claude_oss)
+local panelAgyReport = {
+    entries = {
+        {
+            id = "antigravity",
+            display_name = "Antigravity",
+            status = "ready",
+            metrics = {
+                { label = "Gemini", percent = 20, window_secs = 18000, reset_at = isoIn(4 * 3600) },
+                { label = "Claude & GPT OSS", percent = 70, window_secs = 18000, reset_at = isoIn(3 * 3600) },
+                { label = "Gemini", percent = 45, window_secs = 604800, reset_at = isoIn(96 * 3600) },
+                { label = "Claude & GPT OSS", percent = 85, window_secs = 604800, reset_at = isoIn(80 * 3600) },
+            },
+        },
+        creditEntry("anthropic", "Claude", 30, 100, {}),
+    },
+}
+
+-- 1. Default (hide_claude_oss = false): Both Gemini and Claude & GPT OSS are rendered
+local defaultPanelLabels = labels(loadPanel(panelAgyReport, nil, { hide_claude_oss = false }))
+assert(has(defaultPanelLabels, "Gemini"), "Gemini should be rendered in panel by default")
+assert(has(defaultPanelLabels, "Claude & GPT OSS"), "Claude & GPT OSS should be rendered in panel by default")
+assert(has(defaultPanelLabels, "Claude"), "Anthropic Claude should be rendered in panel by default")
+
+-- 2. hide_claude_oss = true: Only Gemini and Anthropic Claude are rendered, Claude & GPT OSS is hidden
+local filteredPanelLabels = labels(loadPanel(panelAgyReport, nil, { hide_claude_oss = true }))
+assert(has(filteredPanelLabels, "Gemini"), "Gemini must remain visible in panel when Claude OSS is hidden")
+assert(not has(filteredPanelLabels, "Claude & GPT OSS"), "Claude & GPT OSS must NOT be rendered anywhere in panel when hidden")
+assert(has(filteredPanelLabels, "Claude"), "Anthropic Claude Pro must NOT be hidden in panel")
 
 io.write("ok: panel rendering, typography, and rounded session estimates with precise calibration\n")

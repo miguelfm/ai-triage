@@ -661,6 +661,56 @@ assert(#dualRows == 2 and dualRows[1].value == "50% / 20%", "dual metric should 
 assert(dualRows[2].key == "Reset" and dualRows[2].value:find("3h") and dualRows[2].value:find("7d: 5d 11h"),
     "dual metric tooltip should display both session and weekly countdowns: got " .. tostring(dualRows[2].value))
 
+-- ============================================================================
+-- Service & Model Filtering in Bar (hide_claude_oss)
+-- ============================================================================
+local agyDualReport = {
+    entries = {
+        {
+            id = "antigravity",
+            display_name = "Antigravity",
+            status = "ready",
+            metrics = {
+                { label = "Gemini", percent = 15, window_secs = 18000, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 10800) },
+                { label = "Claude & GPT OSS", percent = 100, severity = "critical", window_secs = 18000, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 7200) },
+                { label = "Gemini", percent = 80, window_secs = 604800, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 400000) },
+                { label = "Claude & GPT OSS", percent = 100, severity = "critical", window_secs = 604800, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 300000) },
+            },
+        },
+    },
+}
+
+-- 1. With hide_claude_oss = true:
+local hiddenAgyBar = loadBar({ vendor = "antigravity", hide_claude_oss = true, visualization = "gauge" }, agyDualReport)
+local hiddenAgyProgress = findAllNodes(hiddenAgyBar.rendered(), function(n) return n.kind == "progress" end)
+assert(#hiddenAgyProgress == 2, "hidden Claude OSS should result in only 2 progress bars (Gemini session + weekly)")
+assert(containsText(hiddenAgyBar.rendered(), "15%"), "hidden Claude OSS should leave Gemini 15% in capsule")
+assert(not containsText(hiddenAgyBar.rendered(), "100%"), "hidden Claude OSS 100% must NOT be shown in capsule")
+
+local hiddenAgyTooltip = hiddenAgyBar.tooltip()
+local hasGeminiRow = false
+local hasClaudeRow = false
+for _, row in ipairs(hiddenAgyTooltip) do
+    if row.key == "Gemini" then hasGeminiRow = true end
+    if row.key == "Claude & GPT OSS" or row.key:find("Claude") then hasClaudeRow = true end
+end
+assert(hasGeminiRow == true, "Gemini must be present in Antigravity tooltip")
+assert(hasClaudeRow == false, "Claude & GPT OSS must NOT be present in Antigravity tooltip when hidden")
+
+-- 2. Pinned vendor = "claude-oss" with hide_claude_oss = true should be hidden
+local hiddenPinnedBar = loadBar({ vendor = "claude-oss", hide_claude_oss = true }, agyDualReport)
+assert(#hiddenPinnedBar.rendered().children == 1 and hiddenPinnedBar.rendered().children[1].kind == "glyph",
+    "pinned claude-oss when hidden should render fallback scale icon")
+
+-- 3. Anthropic Claude Pro must NOT be hidden by hide_claude_oss = true
+local anthropicReport = {
+    entries = {
+        entry("anthropic", "Claude", 25),
+    },
+}
+local anthropicBar = loadBar({ vendor = "anthropic", hide_claude_oss = true }, anthropicReport)
+assert(containsText(anthropicBar.rendered(), "25%"), "Anthropic Claude Pro must NOT be hidden by hide_claude_oss")
+
 io.write("ok: account selection, unavailable providers, steady capsule, and typography scaling in bar\n")
 
 

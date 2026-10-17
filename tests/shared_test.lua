@@ -778,5 +778,99 @@ for _, preset in ipairs({ "compact", "normal", "large", "huge" }) do
     assert(t.fontSize(19) > t.fontSize(9), string.format("Preset %s: title (19) must be strictly larger than microbadge (9)", preset))
 end
 
+-- ============================================================================
+-- Service and Model Visibility Filtering (hide_claude_oss & hidden_services)
+-- ============================================================================
+-- 1. Default configuration: no services or models hidden
+assert(shared.isModelHidden("antigravity", "Claude & GPT OSS") == false,
+    "Claude & GPT OSS must not be hidden by default")
+assert(shared.isModelHidden("antigravity", "Gemini") == false,
+    "Gemini must not be hidden by default")
+assert(shared.isModelHidden("anthropic", "Claude") == false,
+    "Anthropic Claude must not be hidden by default")
+
+-- 2. hide_claude_oss enabled
+noctalia.getConfig = function(k)
+    if k == "hide_claude_oss" then return true end
+    return nil
+end
+
+assert(shared.isModelHidden("antigravity", "Claude & GPT OSS") == true,
+    "Claude & GPT OSS must be hidden when hide_claude_oss is true")
+assert(shared.isModelHidden("claude-oss", "Claude & GPT OSS") == true,
+    "claude-oss id must be hidden when hide_claude_oss is true")
+assert(shared.isModelHidden("antigravity", "Gemini") == false,
+    "Gemini must remain visible when hide_claude_oss is true")
+assert(shared.isModelHidden("anthropic", "Claude") == false,
+    "Anthropic Claude Pro must NOT be hidden by hide_claude_oss")
+
+-- Test modelHeadlines filtering
+local agyFilteredModels = shared.modelHeadlines(antigravityEntry)
+assert(#agyFilteredModels == 1, "modelHeadlines must return only 1 model when Claude & GPT OSS is hidden")
+assert(agyFilteredModels[1].model == "Gemini", "only Gemini must be returned in modelHeadlines")
+
+-- Test headline filtering: Antigravity should not block on Claude & GPT OSS when hidden
+local agyWithExhaustedOss = {
+    id = "antigravity",
+    status = "ready",
+    metrics = {
+        { label = "Gemini", percent = 15, severity = "low" },
+        { label = "Claude & GPT OSS", percent = 100, severity = "critical" },
+    },
+}
+local chosenHeadline = shared.headline(agyWithExhaustedOss)
+assert(chosenHeadline.label == "Gemini" and chosenHeadline.percent == 15,
+    "Antigravity headline must follow visible Gemini (15%) and ignore hidden exhausted Claude OSS")
+
+-- Test collectModelItems filtering
+local mockAgyCandidates = {
+    {
+        id = "antigravity",
+        display_name = "Antigravity",
+        status = "ready",
+        metrics = {
+            { label = "Gemini", percent = 10, window_secs = 18000 },
+            { label = "Claude & GPT OSS", percent = 50, window_secs = 18000 },
+            { label = "Gemini", percent = 20, window_secs = 604800 },
+            { label = "Claude & GPT OSS", percent = 90, window_secs = 604800 },
+        },
+    },
+    {
+        id = "openai",
+        display_name = "Codex",
+        status = "ready",
+        metrics = {
+            { label = "Session", percent = 30, window_secs = 18000 },
+            { label = "Weekly", percent = 40, window_secs = 604800 },
+        },
+    },
+}
+local filteredItems = shared.collectModelItems(mockAgyCandidates)
+assert(#filteredItems == 2, "collectModelItems must collect 2 items: Gemini and Codex")
+assert(filteredItems[1].name == "Gemini" and filteredItems[2].name == "Codex",
+    "collected items must be Gemini and Codex, omitting Claude & GPT OSS")
+
+-- 3. hidden_services comma-separated list
+noctalia.getConfig = function(k)
+    if k == "hidden_services" then return "openai, claude-oss" end
+    return nil
+end
+
+assert(shared.isModelHidden("openai", "Codex") == true, "openai must be hidden via hidden_services")
+assert(shared.isModelHidden("claude-oss", "Claude & GPT OSS") == true, "claude-oss must be hidden via hidden_services")
+assert(shared.isModelHidden("anthropic", "Claude") == false, "anthropic must not be hidden")
+
+local hiddenEntriesReport = {
+    entries = {
+        { id = "openai", display_name = "Codex", status = "ready", metrics = { { percent = 50 } } },
+        { id = "anthropic", display_name = "Claude", status = "ready", metrics = { { percent = 20 } } },
+    },
+}
+local visibleEntries = shared.entries(hiddenEntriesReport)
+assert(#visibleEntries == 1 and visibleEntries[1].id == "anthropic",
+    "shared.entries must filter out providers listed in hidden_services")
+
+noctalia.getConfig = nil
+
 io.write("ok: shared timestamps, availability, provider order, mathematical triage score, reset staggering, and typography scale presets\n")
 

@@ -62,6 +62,7 @@ local function shown()
     local all = entries()
     if vendor ~= "auto" then
         local wanted = wantedEntryId()
+        if shared.isModelHidden(wanted, wanted) then return {}, 0 end
         for _, entry in ipairs(all) do
             -- A pinned provider that stopped reporting leaves the capsule empty
             -- rather than holding a number nothing is refreshing.
@@ -142,6 +143,7 @@ end
 local function pinnedDown()
     if vendor == "auto" then return nil end
     local wanted = wantedEntryId()
+    if shared.isModelHidden(wanted, wanted) then return nil end
     for _, entry in ipairs(entries()) do
         if entry.id == wanted and unavailable(entry) then return entry end
         if (wanted == "gemini" or wanted == "claude-oss" or wanted == "claude_oss")
