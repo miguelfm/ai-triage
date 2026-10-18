@@ -57,6 +57,21 @@ local function entries()
     return shared.entries(report)
 end
 
+local function panelCandidates()
+    if type(report) ~= "table" or type(report.entries) ~= "table" then return {} end
+    local list = {}
+    for _, entry in ipairs(report.entries) do
+        if type(entry) == "table" and not shared.terminalAuth(entry) and configured(entry) then
+            local id = entry.id
+            local name = entry.display_name or entry.name or entry.id
+            if not shared.isModelHidden(id, name) then
+                list[#list + 1] = entry
+            end
+        end
+    end
+    return list
+end
+
 -- ── Detail line parsing ───────────────────────────────────────────────────────
 -- "Resets in 1h 58m · 60% elapsed · 30pts ahead". The reset half is already in
 -- `reset_at`; what is left is the pace, and some details carry no reset at all.
@@ -1387,12 +1402,7 @@ function render()
         return
     end
 
-    local candidates = {}
-    for _, candidate in ipairs(entries()) do
-        if configured(candidate) then
-            candidates[#candidates + 1] = candidate
-        end
-    end
+    local candidates = panelCandidates()
 
     if #candidates > 0 then
         renderColumns(candidates, typo)

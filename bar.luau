@@ -156,12 +156,17 @@ local function shown()
     return picked, #ready - #picked
 end
 
+local function rawReportEntries()
+    if type(report) ~= "table" or type(report.entries) ~= "table" then return {} end
+    return report.entries
+end
+
 -- The pinned entry when the report carries it and its source is down. `shown()`
 -- withholds its numbers; the tooltip is still the place that says why.
 local function pinnedDown()
     if vendor == "auto" or isPinnedHidden() then return nil end
     local wanted = wantedEntryId()
-    for _, entry in ipairs(entries()) do
+    for _, entry in ipairs(rawReportEntries()) do
         if entry.id == wanted and unavailable(entry) then return entry end
         if (wanted == "gemini" or wanted == "claude-oss" or wanted == "claude_oss")
             and baseProvider(entry.id) == "antigravity" and unavailable(entry) then
@@ -507,7 +512,9 @@ local function tooltip(picked, hidden)
         -- config for a failure the CLI already worded.
         local down = pinnedDown()
         if down ~= nil then
-            return { { key = tostring(down.display_name or down.id), value = warning(down) } }
+            local warn = warning(down)
+            if warn == "" then warn = noctalia.tr("ui.unavailable") end
+            return { { key = tostring(down.display_name or down.id), value = warn } }
         end
         local waiting = vendor == "auto" and noctalia.tr("ui.waiting")
             or noctalia.tr("ui.not_configured", { vendor = wantedEntryId() })
@@ -618,11 +625,15 @@ local function render()
     end
 
     if #children == 0 then
-        -- One glyph, coloured by the state. A second icon beside it would read as
-        -- a second problem.
+        -- One glyph, coloured by the state. A pinned provider that is down or
+        -- waiting uses its own glyph so the capsule remains identifiable.
+        local down = pinnedDown()
+        local glyphName = (down ~= nil and providerGlyph(down.id))
+            or (vendor ~= "auto" and providerGlyph(wantedEntryId()))
+            or "scale"
         children[1] = ui.glyph({
-            name = "scale", size = gs(14),
-            color = failure.code ~= "" and "error" or "on_surface_variant",
+            name = glyphName, size = gs(14),
+            color = (failure.code ~= "" or down ~= nil) and "error" or "on_surface_variant",
         })
     elseif hidden > 0 then
         children[#children + 1] = ui.label({ text = "+" .. tostring(hidden), fontSize = fs(10),

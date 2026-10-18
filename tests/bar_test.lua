@@ -228,8 +228,10 @@ local pinnedDown = loadBar({
     vendor = "antigravity", account = "", extras = "none", visualization = "none",
 }, { entries = { downEntry("antigravity", "Antigravity", 90) } })
 local pinnedRow = pinnedDown.tooltip()[1]
-assert(pinnedRow.value == "antigravity not configured",
-       "a pinned provider with its own failure should leave the bar")
+assert(pinnedRow.key == "Antigravity", "pinned provider that is down should identify itself")
+assert(pinnedRow.value:find("no local server found"), "pinned provider that is down should show CLI warning in tooltip")
+assert(pinnedDown.rendered().children[1].props.name == "sparkles", "pinned provider that is down should render its own glyph")
+assert(pinnedDown.rendered().children[1].props.color == "error", "pinned provider that is down should render glyph in error color")
 
 -- `[ui] primary` can come back as a full account id, and the tie-break has to
 -- recognise it in that form as well as the bare provider one.
