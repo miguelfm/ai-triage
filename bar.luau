@@ -55,14 +55,32 @@ local function rank(entry)
     return SEVERITY_RANK[tostring(metric.severity or "")] or 0, tonumber(metric.percent) or 0
 end
 
+local function isPinnedHidden()
+    if vendor == "auto" then return false end
+    local wanted = wantedEntryId()
+    local base = baseProvider(wanted)
+    if shared.isModelHidden(wanted, wanted) or shared.isModelHidden(base, base) then
+        return true
+    end
+    if (wanted == "claude-oss" or wanted == "claude_oss" or vendor == "claude-oss" or vendor == "claude_oss")
+        and shared.isModelHidden("antigravity", "Claude & GPT OSS") then
+        return true
+    end
+    if (wanted == "gemini" or vendor == "gemini")
+        and shared.isModelHidden("antigravity", "Gemini") then
+        return true
+    end
+    return false
+end
+
 -- A pinned vendor shows only itself. "auto" ranks by severity then percentage,
 -- so the provider closest to running out is the one on the bar. `primary` breaks
 -- ties.
 local function shown()
+    if isPinnedHidden() then return {}, 0 end
     local all = entries()
     if vendor ~= "auto" then
         local wanted = wantedEntryId()
-        if shared.isModelHidden(wanted, wanted) then return {}, 0 end
         for _, entry in ipairs(all) do
             -- A pinned provider that stopped reporting leaves the capsule empty
             -- rather than holding a number nothing is refreshing.
@@ -141,9 +159,8 @@ end
 -- The pinned entry when the report carries it and its source is down. `shown()`
 -- withholds its numbers; the tooltip is still the place that says why.
 local function pinnedDown()
-    if vendor == "auto" then return nil end
+    if vendor == "auto" or isPinnedHidden() then return nil end
     local wanted = wantedEntryId()
-    if shared.isModelHidden(wanted, wanted) then return nil end
     for _, entry in ipairs(entries()) do
         if entry.id == wanted and unavailable(entry) then return entry end
         if (wanted == "gemini" or wanted == "claude-oss" or wanted == "claude_oss")
@@ -566,6 +583,17 @@ local function tooltip(picked, hidden)
 end
 
 local function render()
+    if isPinnedHidden() then
+        if type(barWidget.setVisible) == "function" then
+            barWidget.setVisible(false)
+        end
+        return
+    end
+
+    if type(barWidget.setVisible) == "function" then
+        barWidget.setVisible(true)
+    end
+
     local isVert = type(barWidget.isVertical) == "function" and barWidget.isVertical() or false
     local picked, hidden = shown()
     -- A failed read does not erase the last one: the numbers stay, flagged,

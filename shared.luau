@@ -349,9 +349,11 @@ function M.isModelHidden(providerId, modelName)
     end
     local pid = tostring(providerId or ""):lower()
     local name = tostring(modelName or ""):lower()
+    local basePid = M.baseProvider(pid):lower()
 
     if hideOss then
         if pid == "claude-oss" or pid == "claude_oss"
+            or basePid == "claude-oss" or basePid == "claude_oss"
             or name:find("oss", 1, true)
             or (name:find("claude", 1, true) and not pid:find("anthropic")) then
             return true
@@ -362,7 +364,7 @@ function M.isModelHidden(providerId, modelName)
         for item in hiddenList:gmatch("[^,]+") do
             local lowerItem = item:match("^%s*(.-)%s*$"):lower()
             if lowerItem ~= "" then
-                if pid == lowerItem or name == lowerItem
+                if pid == lowerItem or basePid == lowerItem or name == lowerItem
                     or (name ~= "" and name:find(lowerItem, 1, true))
                     or (pid ~= "" and pid:find(lowerItem, 1, true)) then
                     return true

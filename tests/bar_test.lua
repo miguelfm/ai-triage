@@ -61,6 +61,7 @@ local function loadBar(config, report, err)
     local barWidget = {
         render = function(node) rendered = node end,
         setTooltip = function(rows) tooltip = rows end,
+        setVisible = function(v) visible = v end,
         isVertical = function() return config.vertical == true end,
     }
     local sharedEnv = setmetatable({ noctalia = noctalia }, { __index = _G })
@@ -80,6 +81,7 @@ local function loadBar(config, report, err)
         values = values,
         rendered = function() return rendered end,
         tooltip = function() return tooltip end,
+        visible = function() return visible end,
         publish = function(nextReport)
             values.report = nextReport
             watchers.report(nextReport)
@@ -697,10 +699,16 @@ end
 assert(hasGeminiRow == true, "Gemini must be present in Antigravity tooltip")
 assert(hasClaudeRow == false, "Claude & GPT OSS must NOT be present in Antigravity tooltip when hidden")
 
--- 2. Pinned vendor = "claude-oss" with hide_claude_oss = true should be hidden
+-- 2. Pinned vendor = "claude-oss" with hide_claude_oss = true should completely hide the capsule
 local hiddenPinnedBar = loadBar({ vendor = "claude-oss", hide_claude_oss = true }, agyDualReport)
-assert(#hiddenPinnedBar.rendered().children == 1 and hiddenPinnedBar.rendered().children[1].kind == "glyph",
-    "pinned claude-oss when hidden should render fallback scale icon")
+assert(hiddenPinnedBar.visible() == false, "pinned claude-oss when hidden must hide the capsule via barWidget.setVisible(false)")
+assert(hiddenPinnedBar.rendered() == nil, "pinned claude-oss when hidden must not render anything (no scale icon)")
+
+-- 2b. Pinned vendor = "claude-oss" with hide_claude_oss = false should be visible
+local visiblePinnedBar = loadBar({ vendor = "claude-oss", hide_claude_oss = false }, agyDualReport)
+assert(visiblePinnedBar.visible() == true, "pinned claude-oss when not hidden must be visible")
+assert(containsText(visiblePinnedBar.rendered(), "100%"), "pinned claude-oss when not hidden must render 100%")
+assert(not containsText(visiblePinnedBar.rendered(), "15%"), "pinned claude-oss when not hidden must NOT render Gemini 15%")
 
 -- 3. Anthropic Claude Pro must NOT be hidden by hide_claude_oss = true
 local anthropicReport = {
@@ -709,6 +717,7 @@ local anthropicReport = {
     },
 }
 local anthropicBar = loadBar({ vendor = "anthropic", hide_claude_oss = true }, anthropicReport)
+assert(anthropicBar.visible() == true, "Anthropic Claude Pro must be visible")
 assert(containsText(anthropicBar.rendered(), "25%"), "Anthropic Claude Pro must NOT be hidden by hide_claude_oss")
 
 io.write("ok: account selection, unavailable providers, steady capsule, and typography scaling in bar\n")
