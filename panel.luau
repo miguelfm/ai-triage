@@ -1182,16 +1182,45 @@ local function renderColumns(candidates, typo)
 
     if #weeklySchedules > 0 then
         local scheduleRows = {}
+        local remColWidth = math.floor(52 * factor + 0.5)
+        local dayColWidth = math.floor(32 * factor + 0.5)
+        local timeColWidth = math.floor(40 * factor + 0.5)
         for _, ws in ipairs(weeklySchedules) do
-            local dateStr = ws.resetAt and string.format("%s %s", os.date("%a", ws.resetAt), noctalia.formatTime(noctalia.timeFormat(), ws.resetAt)) or "--:--"
-            local remStr = formatSeconds(ws.remainingSecs)
+            local remSecs = math.max(0, ws.remainingSecs or 0)
+            local remDays = math.floor(remSecs / 86400)
+            local remHours = math.floor((remSecs % 86400) / 3600)
+            local remStr = string.format("%dd %02dh", remDays, remHours)
+            local dayStr = ws.resetAt and os.date("%a", ws.resetAt) or "---"
+            local timeStr = ws.resetAt and noctalia.formatTime(noctalia.timeFormat(), ws.resetAt) or "--:--"
+            if timeStr:match("^%d:%d%d") then
+                timeStr = "0" .. timeStr
+            end
             scheduleRows[#scheduleRows + 1] = ui.row({ gap = 6, align = "center" }, {
                 ui.glyph({ name = ws.glyph, size = gs(13), color = "secondary" }),
-                ui.label({ text = ws.name, fontSize = fs(12), fontWeight = "semibold", color = "on_surface" }),
+                ui.label({ text = ws.name, fontSize = fs(12), fontWeight = "semibold", color = "on_surface", maxLines = 1 }),
                 ui.spacer({ flexGrow = 1 }),
-                ui.label({
-                    text = string.format("%s (%s)", dateStr, remStr),
-                    fontSize = fs(11), color = "on_surface_variant",
+                ui.row({ width = remColWidth, minWidth = remColWidth, justify = "start" }, {
+                    ui.label({
+                        text = remStr,
+                        fontFamily = "monospace",
+                        fontSize = fs(11),
+                        color = "on_surface_variant",
+                    }),
+                }),
+                ui.row({ width = dayColWidth, minWidth = dayColWidth, justify = "start" }, {
+                    ui.label({
+                        text = dayStr,
+                        fontSize = fs(11),
+                        color = "on_surface_variant",
+                    }),
+                }),
+                ui.row({ width = timeColWidth, minWidth = timeColWidth, justify = "start" }, {
+                    ui.label({
+                        text = timeStr,
+                        fontFamily = "monospace",
+                        fontSize = fs(11),
+                        color = "on_surface_variant",
+                    }),
                 }),
             })
         end
@@ -1199,7 +1228,7 @@ local function renderColumns(candidates, typo)
             ui.row({ gap = 6, align = "center" }, {
                 ui.glyph({ name = "calendar", size = gs(14), color = "secondary" }),
                 ui.label({
-                    text = "Weekly Reset Schedule (7d)",
+                    text = "Weekly Reset Schedule",
                     fontSize = fs(13), fontWeight = "bold", color = "secondary",
                 }),
             }),

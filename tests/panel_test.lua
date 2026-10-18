@@ -276,8 +276,11 @@ assert(has(spentLabels, "Optimal Reset Window!") and has(spentLabels, "CLAIM NOW
     "a spent week with days left must recommend the claim")
 assert(mentions(spentLabels, "claim now: ~100% of a week back"), "the claim must state what it buys back")
 
--- Weekly Reset Schedule (7d) visibility in Column 3
-assert(has(holdLabels, "Weekly Reset Schedule (7d)"), "Column 3 must display the Weekly Reset Schedule (7d)")
+-- Weekly Reset Schedule visibility in Column 3
+assert(has(holdLabels, "Weekly Reset Schedule"), "Column 3 must display the Weekly Reset Schedule")
+assert(has(holdLabels, "0d 05h") and has(holdLabels, "5d 12h"), "Column 3 schedule rows must display remaining time as Xd Yh in its own cell")
+assert(has(holdLabels, "12:00"), "Column 3 schedule rows must display reset clock in its own monospace cell")
+assert(not mentions(holdLabels, " : "), "Column 3 schedule rows must not contain ' : '")
 
 -- Imminent weekly renewal alert in Column 3 when unspent quota is at risk
 local imminentReport = { entries = {
