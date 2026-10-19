@@ -899,5 +899,106 @@ local shortM, weeklyM = shared.dualMetrics(zeroWindowMetrics)
 assert(shortM.label == "Session" and weeklyM.label == "Weekly",
     "dualMetrics must ignore non-positive window_secs")
 
+-- 5. Automatic natural weekly cycle memory tests
+shared.resetCycleMemory()
+
+-- Scenario A: Normal ongoing monitoring records planned reset
+local now = os.time()
+local normalClaudeEntry = {
+    id = "anthropic",
+    display_name = "Claude",
+    metrics = {
+        { label = "Session", percent = 10, window_secs = 18000, reset_at = isoIn(3600) },
+        { label = "Weekly", percent = 50, window_secs = 604800, reset_at = isoIn(48 * 3600) },
+    },
+}
+local reportA = { entries = { normalClaudeEntry } }
+shared.reconcileReportCycles(reportA, now)
+local memA = shared.getCycleMemory()
+assert(memA["anthropic"] ~= nil, "anthropic must have a cycle memory record")
+assert(memA["anthropic"].manual_reset_active == false, "normal entry must not be flagged manual reset")
+assert(memA["anthropic"].natural_reset_at ~= nil, "natural_reset_at must be recorded")
+
+-- Scenario B: Infer natural renewal when user has just executed a manual reset with available credits
+-- (Codex reports floating 6d 23h, 3% usage, with credit expiring in 10d 6h = Oct 29, so renewal is Oct 22 = in 3d 6h)
+local resetCodexEntry = {
+    id = "openai",
+    display_name = "Codex",
+    metrics = {
+        { label = "Codex 5h", percent = 22, window_secs = 18000, reset_at = isoIn(17000) },
+        { label = "Codex weekly", percent = 3, window_secs = 604800, reset_at = isoIn(604000), detail = "Resets in 6d 23h · 0% elapsed · 3pts ahead" },
+    },
+    reset_credits = {
+        available = 2,
+        credits = {
+            { title = "Full reset", expires_at = isoIn(246 * 3600) }, -- in 10d 6h
+        },
+    },
+}
+local reportB = { entries = { resetCodexEntry } }
+shared.reconcileReportCycles(reportB, now)
+local memB = shared.getCycleMemory()
+assert(memB["openai"] ~= nil, "openai must have a cycle memory record")
+assert(memB["openai"].manual_reset_active == true, "freshly reset entry with ~7d float must be flagged manual_reset_active")
+local expectedNaturalReset = now + (246 - 168) * 3600 -- in 78h (3d 6h)
+assert(math.abs(memB["openai"].natural_reset_at - expectedNaturalReset) <= 2,
+    "natural renewal must align with weekly credit anchor (Oct 22, in ~78h)")
+local _, codexWM = shared.dualMetrics(resetCodexEntry.metrics)
+assert(codexWM.reset_at ~= nil and not codexWM.detail:find("6d 23h"),
+    "reconcileReportCycles must replace artificial 6d 23h detail with real planned countdown")
+assert(codexWM.detail:find("3d 6h"), "reconciled detail must show real remaining 3d 6h")
+
+-- Scenario C: Mid-cycle quota exhaustion followed by reset credit consumption
+-- Codex was at 98% with 35h left; user resets -> quota becomes 0% and API says resets in 6d 23h (604800s).
+-- Cycle memory must preserve the 35h renewal date!
+shared.resetCycleMemory()
+local preResetCodex = {
+    id = "openai",
+    display_name = "Codex",
+    metrics = {
+        { label = "Codex 5h", percent = 100, window_secs = 18000, reset_at = isoIn(7200) },
+        { label = "Codex weekly", percent = 98, window_secs = 604800, reset_at = isoIn(35 * 3600) },
+    },
+    reset_credits = { available = 2 },
+}
+shared.reconcileReportCycles({ entries = { preResetCodex } }, now)
+local memPre = shared.getCycleMemory()
+assert(memPre["openai"].natural_reset_at ~= nil, "pre-reset date recorded")
+local savedPlannedReset = memPre["openai"].natural_reset_at
+
+-- User consumes reset:
+local postResetCodex = {
+    id = "openai",
+    display_name = "Codex",
+    metrics = {
+        { label = "Codex 5h", percent = 0, window_secs = 18000, reset_at = isoIn(18000) },
+        { label = "Codex weekly", percent = 0, window_secs = 604800, reset_at = isoIn(604800), detail = "Resets in 7d 0h · 0% elapsed · on track" },
+    },
+    reset_credits = { available = 1 }, -- 1 credit consumed
+}
+shared.reconcileReportCycles({ entries = { postResetCodex } }, now + 60)
+local memPost = shared.getCycleMemory()
+assert(memPost["openai"].manual_reset_active == true, "manual reset must be detected from credit drop and quota drop")
+assert(memPost["openai"].natural_reset_at == savedPlannedReset, "planned reset date must be preserved, not overwritten with 7d")
+local _, reconciledPostWM = shared.dualMetrics(postResetCodex.metrics)
+assert(reconciledPostWM.detail:find("1d 10h") or reconciledPostWM.detail:find("1d 11h") or reconciledPostWM.detail:find("34h") or reconciledPostWM.detail:find("35h"),
+    "reconciled post-reset detail must reflect the original ~35h countdown: " .. tostring(reconciledPostWM.detail))
+
+-- Scenario D: Natural cycle expiry advances to next 7d cycle
+local futureTime = savedPlannedReset + 120 -- 2 minutes past the real planned reset
+local renewedCodex = {
+    id = "openai",
+    display_name = "Codex",
+    metrics = {
+        { label = "Codex 5h", percent = 0, window_secs = 18000, reset_at = isoIn(18000) },
+        { label = "Codex weekly", percent = 0, window_secs = 604800, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", savedPlannedReset + 604800) },
+    },
+}
+shared.reconcileReportCycles({ entries = { renewedCodex } }, futureTime)
+local memAdvanced = shared.getCycleMemory()
+assert(memAdvanced["openai"].manual_reset_active == false, "manual reset mode clears after natural renewal arrives")
+assert(memAdvanced["openai"].natural_reset_at == savedPlannedReset + 604800, "cycle advances exactly 7 days after natural renewal")
+
 io.write("ok: shared timestamps, availability, provider order, mathematical triage score, reset staggering, typography scale presets, and 1.40 compat\n")
+
 

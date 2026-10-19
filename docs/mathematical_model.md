@@ -266,3 +266,36 @@ The filtering subsystem provides granular control via two settings:
 - **Taskbar Capsule Dynamic Collapsing**: Pinned bar widgets configured for hidden models (e.g. `vendor = "claude-oss"` when `hide_claude_oss` is active) dynamically invoke `barWidget.setVisible(false)`, collapsing the capsule completely from the taskbar without leaving empty spaces or ambiguous fallback icons.
 - **Provider Identity Preservation During Transient Outages**: Outage detection decouples transport failures (such as upstream HTTP 429 rate limits or network connection drops) from configuration state. Pinned capsules preserve the provider's semantic glyph in warning state with diagnostic tooltips, while the panel renders the card with an `Offline` badge instead of pruning the configured model.
 
+---
+
+## 6. Automatic Natural Weekly Cycle Memory
+
+### 6.1 The Manual Quota Reset Problem
+Providers with rolling 7-day rate limit telemetry (notably OpenAI Codex) establish a scheduled natural renewal cadence $R_{\text{natural}}$ coupled to subscription billing cycles (e.g. Thursdays at 17:45 UTC). When a user consumes an on-demand reset credit or executes a quota reset mid-cycle:
+1. The upstream API resets the secondary window counter to $0\%$ and dynamically emits an artificial floating 7-day timestamp:
+   $$R_{\text{synthetic}} = t_{\text{now}} + 7\text{d}$$
+2. However, the upstream platform does **not** reschedule the subscriber's natural weekly renewal; the real scheduled renewal remains anchored at $R_{\text{natural}} < R_{\text{synthetic}}$.
+3. Blindly accepting $R_{\text{synthetic}}$ distorts the triage engine:
+   - Remaining active working hours $H_w$ are calculated against the distant 7-day horizon rather than the true imminent renewal, incorrectly dampening the triage score into a false `Conserve` or `Balanced` state.
+   - The Weekly Reset Schedule in Column 3 and bar capsule tooltips misleadingly advertise ~7 days of headroom, obscuring the fact that a fresh full allocation will arrive in only a few days or hours.
+   - Credit staggering valuations ($G_{\text{now}}$ and $G_{\text{cycle}}$) compute against false cycle horizons.
+
+### 6.2 Cycle Memory & Preservation Engine
+The automatic natural weekly cycle memory subsystem decouples manual quota resets from the scheduled renewal timeline:
+1. **Continuous Cadence Tracking**: During normal ongoing operation, $R_{\text{natural}}$ is recorded and persisted across Noctalia state and `$XDG_STATE_HOME/noctalia/ai_triage_cycles.json`.
+2. **Manual Reset Detection**: A manual reset event is identified whenever:
+   $$\Delta U_{i,w} \le -20\% \quad\lor\quad \Delta \text{credits} < 0 \quad\lor\quad \left(R_{\text{API}} - t_{\text{now}} \ge 6.0\text{d} \;\land\; R_{\text{natural}} > t_{\text{now}} \;\land\; R_{\text{natural}} < R_{\text{API}} - 1\text{d}\right)$$
+   Upon detection, `manual_reset_active` transitions to `true`, and $R_{\text{natural}}$ is strictly protected from being overwritten by $R_{\text{synthetic}}$.
+3. **Credit Anchor Inference**: If cycle memory is uninitialized or unanchored when an artificial ~7-day reset is observed ($R_{\text{API}} - t_{\text{now}} \ge 6.0\text{d}$ and either $R_{\text{natural}}$ is uninitialized or $R_{\text{natural}} \ge R_{\text{API}} - 1\text{d}$), the engine inspects remaining promotional reset credit expiration timestamps $E_k$. Since platform reset credits expire synchronously with weekly renewals ($E_k = R_{\text{natural}} + 7m\text{d}$), the engine infers:
+   $$R_{\text{natural}} = \min \{ E_k - 7m\text{d} \mid E_k - 7m\text{d} > t_{\text{now}} \;\land\; E_k - 7m\text{d} < R_{\text{API}} - 1\text{d} \}$$
+   and transitions `manual_reset_active` to `true`.
+4. **Natural Renewal Advancement**: When wall-clock time passes the genuine scheduled renewal ($t_{\text{now}} \ge R_{\text{natural}}$):
+   $$R_{\text{natural}} \leftarrow R_{\text{natural}} + 7\text{d}, \quad \text{manual\_reset\_active} \leftarrow \text{false}$$
+   restoring seamless ongoing tracking.
+
+### 6.3 Persistence Architecture & Display Reconciler
+- **Storage Strategy**: Cycle memory is mirrored in real time between reactive runtime state (`noctalia.state.weekly_cycle_memory`) and filesystem persistence at `$XDG_STATE_HOME/noctalia/ai_triage_cycles.json` (falling back to `~/.local/state/noctalia/ai_triage_cycles.json`).
+- **Telemetry Reconciliation**: When `manual_reset_active` is asserted, the subsystem overrides `wMetric.reset_at` with $R_{\text{natural}}$ and recalculates `wMetric.detail` ($d_{\text{rem}}$, $\%_{\text{elapsed}}$, $\Delta_{\text{pace}}$) relative to the authentic weekly cadence. The original API timestamp is safely preserved in `wMetric.raw_reset_at` to guarantee idempotent downstream evaluation across poller updates, panel open events, and bar widget rendering.
+
+
+

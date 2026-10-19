@@ -220,6 +220,7 @@ local function refresh()
             -- so a non-zero exit is no reason to drop the report.
             local safeReport = scrub(decoded)
             keepAntigravityReading(safeReport)
+            shared.reconcileReportCycles(safeReport)
             noctalia.state.set("report", safeReport)
             noctalia.state.set("error", failure(""))
         else
