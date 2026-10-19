@@ -499,6 +499,210 @@ function M.modelDisplayName(label)
     return tostring(label or "")
 end
 
+-- Parse quota from agy statusline observation JSON (e.g. agy-statusline.observation.json)
+function M.parseAgyStatuslineObservation(data)
+    if type(data) ~= "table" then return nil end
+    local quota = {}
+
+    local q = (type(data.payload) == "table" and type(data.payload.quota) == "table") and data.payload.quota or nil
+    if q then
+        if type(q["gemini-5h"]) == "table" then
+            local rem = tonumber(q["gemini-5h"].remaining_fraction) or 1
+            local used = math.max(0, math.min(100, math.floor((1 - rem) * 100 + 0.5)))
+            quota.gemini_5h = {
+                percent = used,
+                reset_at = q["gemini-5h"].reset_time,
+                remaining_secs = tonumber(q["gemini-5h"].reset_in_seconds),
+            }
+        end
+        if type(q["gemini-weekly"]) == "table" then
+            local rem = tonumber(q["gemini-weekly"].remaining_fraction) or 1
+            local used = math.max(0, math.min(100, math.floor((1 - rem) * 100 + 0.5)))
+            quota.gemini_weekly = {
+                percent = used,
+                reset_at = q["gemini-weekly"].reset_time,
+                remaining_secs = tonumber(q["gemini-weekly"].reset_in_seconds),
+            }
+        end
+        if type(q["3p-5h"]) == "table" then
+            local rem = tonumber(q["3p-5h"].remaining_fraction) or 1
+            local used = math.max(0, math.min(100, math.floor((1 - rem) * 100 + 0.5)))
+            quota.third_party_5h = {
+                percent = used,
+                reset_at = q["3p-5h"].reset_time,
+                remaining_secs = tonumber(q["3p-5h"].reset_in_seconds),
+            }
+        end
+        if type(q["3p-weekly"]) == "table" then
+            local rem = tonumber(q["3p-weekly"].remaining_fraction) or 1
+            local used = math.max(0, math.min(100, math.floor((1 - rem) * 100 + 0.5)))
+            quota.third_party_weekly = {
+                percent = used,
+                reset_at = q["3p-weekly"].reset_time,
+                remaining_secs = tonumber(q["3p-weekly"].reset_in_seconds),
+            }
+        end
+    end
+
+    if not quota.gemini_5h and type(data.snapshot) == "table" and type(data.snapshot.windows) == "table" then
+        for _, w in ipairs(data.snapshot.windows) do
+            if type(w) == "table" then
+                local kind = w.kind
+                local used = tonumber(w.used_percent)
+                if used == nil and w.remaining_percent ~= nil then
+                    used = 100 - tonumber(w.remaining_percent)
+                end
+                used = math.max(0, math.min(100, math.floor((used or 0) + 0.5)))
+                local resetIso = nil
+                local remSecs = nil
+                if w.resets_at then
+                    local ts = tonumber(w.resets_at)
+                    if ts then
+                        resetIso = os.date("!%Y-%m-%dT%H:%M:%SZ", ts)
+                        remSecs = math.max(0, ts - os.time())
+                    end
+                end
+                if kind == "five_hour" then
+                    quota.gemini_5h = {
+                        percent = used,
+                        reset_at = resetIso,
+                        remaining_secs = remSecs,
+                    }
+                elseif kind == "weekly" then
+                    quota.gemini_weekly = {
+                        percent = used,
+                        reset_at = resetIso,
+                        remaining_secs = remSecs,
+                    }
+                end
+            end
+        end
+    end
+
+    if quota.gemini_5h or quota.gemini_weekly then
+        return quota
+    end
+    return nil
+end
+
+-- Parse quota output from `agy -p /quota`
+function M.parseAgyCliQuota(text)
+    if type(text) ~= "string" or text == "" then return nil end
+    local quota = {}
+
+    for line in text:gmatch("[^\r\n]+") do
+        local isGemini = line:find("Gemini", 1, true) ~= nil
+        local is3p = line:find("Claude", 1, true) ~= nil or line:find("GPT", 1, true) ~= nil
+        local is5h = line:find("Five Hour", 1, true) ~= nil
+        local isWeekly = line:find("Weekly", 1, true) ~= nil
+        local remPct, y, mo, d, h, mi = line:match("(%d+)%%%s+(%d%d%d%d)%-(%d%d)%-(%d%d)%s+(%d%d):(%d%d)")
+        if (isGemini or is3p) and (is5h or isWeekly) and remPct then
+            local remaining = tonumber(remPct) or 100
+            local used = math.max(0, math.min(100, 100 - remaining))
+            local localTs = os.time({
+                year = tonumber(y), month = tonumber(mo), day = tonumber(d),
+                hour = tonumber(h), min = tonumber(mi), sec = 0,
+            })
+            local iso = os.date("!%Y-%m-%dT%H:%M:%SZ", localTs)
+            local item = {
+                percent = used,
+                reset_at = iso,
+                remaining_secs = math.max(0, localTs - os.time()),
+            }
+            if isGemini and is5h then
+                quota.gemini_5h = item
+            elseif isGemini and isWeekly then
+                quota.gemini_weekly = item
+            elseif is3p and is5h then
+                quota.third_party_5h = item
+            elseif is3p and isWeekly then
+                quota.third_party_weekly = item
+            end
+        end
+    end
+
+    if quota.gemini_5h or quota.gemini_weekly then
+        return quota
+    end
+    return nil
+end
+
+-- Enrich Antigravity entry with real local session quota
+function M.enrichAntigravityEntry(entry, quotaData)
+    if type(entry) ~= "table" or type(quotaData) ~= "table" then return end
+    if type(entry.metrics) ~= "table" then return end
+
+    local function applyUpdate(m, qd)
+        if not qd then return end
+        if qd.percent ~= nil then
+            m.percent = qd.percent
+            m.value = string.format("%d%%", qd.percent)
+            if qd.percent >= 90 then
+                m.severity = "critical"
+            elseif qd.percent >= 75 then
+                m.severity = "high"
+            elseif qd.percent >= 50 then
+                m.severity = "mid"
+            else
+                m.severity = "low"
+            end
+        end
+        if qd.reset_at then
+            m.reset_at = qd.reset_at
+            local remainingText = M.countdown({ reset_at = qd.reset_at })
+            if remainingText ~= "" then
+                m.detail = "Resets in " .. remainingText
+            else
+                m.detail = "Resets now"
+            end
+        end
+    end
+
+    for _, m in ipairs(entry.metrics) do
+        if type(m) == "table" and type(m.label) == "string" then
+            local label = m.label:lower()
+            local window = tonumber(m.window_secs) or 0
+            if label:find("gemini") then
+                if window <= 43200 then
+                    applyUpdate(m, quotaData.gemini_5h)
+                else
+                    applyUpdate(m, quotaData.gemini_weekly)
+                end
+            elseif label:find("claude") or label:find("gpt") or label:find("oss") then
+                if window <= 43200 then
+                    applyUpdate(m, quotaData.third_party_5h)
+                else
+                    applyUpdate(m, quotaData.third_party_weekly)
+                end
+            end
+        end
+    end
+
+    if type(entry.sections) == "table" then
+        for _, s in ipairs(entry.sections) do
+            if type(s) == "table" and s.type == "metric" and type(s.label) == "string" then
+                local label = s.label:lower()
+                local window = tonumber(s.window_secs) or 0
+                if label:find("gemini") then
+                    if window <= 43200 then
+                        applyUpdate(s, quotaData.gemini_5h)
+                    else
+                        applyUpdate(s, quotaData.gemini_weekly)
+                    end
+                elseif label:find("claude") or label:find("gpt") or label:find("oss") then
+                    if window <= 43200 then
+                        applyUpdate(s, quotaData.third_party_5h)
+                    else
+                        applyUpdate(s, quotaData.third_party_weekly)
+                    end
+                end
+            elseif type(s) == "table" and s.label == "Source" and type(s.value) == "string" then
+                s.value = "Local agy session"
+            end
+        end
+    end
+end
+
 function M.modelHeadlines(entry)
     if type(entry) ~= "table" or type(entry.metrics) ~= "table" then return {} end
     if M.baseProvider(entry.id) ~= "antigravity" then return {} end

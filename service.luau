@@ -192,6 +192,104 @@ local function keepAntigravityReading(report)
     end
 end
 
+local function resolveAgyQuota(callback)
+    -- 1. Try reading the observation JSON file first (instant, 0ms)
+    local obsPath = noctalia and noctalia.expandPath
+        and noctalia.expandPath("~/.local/state/herdr/plugins/herdr-agent-usage/agy-statusline.observation.json")
+    if obsPath then
+        local raw = nil
+        if noctalia and noctalia.readFile then
+            local ok, content = pcall(noctalia.readFile, obsPath)
+            if ok and type(content) == "string" and content ~= "" then
+                raw = content
+            end
+        end
+        if not raw and io and io.open then
+            local ok, f = pcall(io.open, obsPath, "r")
+            if ok and f then
+                raw = f:read("*a")
+                f:close()
+            end
+        end
+        if raw and raw ~= "" then
+            local ok, data = pcall(noctalia.json.decode, raw)
+            if ok and type(data) == "table" then
+                local quota = shared.parseAgyStatuslineObservation(data)
+                if quota and quota.gemini_5h and quota.gemini_5h.reset_at then
+                    local at = shared.parseIso(quota.gemini_5h.reset_at)
+                    if at and at > os.time() then
+                        callback(quota)
+                        return
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Fallback: run `agy -p /quota` asynchronously if `agy` is available
+    if noctalia and noctalia.runAsync then
+        local spawned = noctalia.runAsync("agy -p /quota", function(result)
+            if result and not result.timedOut and result.exitCode == 0 and result.stdout then
+                local quota = shared.parseAgyCliQuota(result.stdout)
+                callback(quota)
+            else
+                callback(nil)
+            end
+        end, 8000)
+        if not spawned then
+            callback(nil)
+        end
+    else
+        callback(nil)
+    end
+end
+
+local function enrichAntigravity(report, callback)
+    if type(report) ~= "table" or type(report.entries) ~= "table" then
+        callback(report)
+        return
+    end
+
+    local agyEntry = nil
+    for _, entry in ipairs(report.entries) do
+        if type(entry) == "table" and shared.baseProvider(entry.id) == "antigravity" then
+            agyEntry = entry
+            break
+        end
+    end
+
+    if not agyEntry or shared.unavailable(agyEntry) then
+        callback(report)
+        return
+    end
+
+    -- Check if Gemini 5h metric is present and at 0% (synthetic floating reset awaiting kickstart)
+    local needsEnrich = false
+    if type(agyEntry.metrics) == "table" then
+        for _, m in ipairs(agyEntry.metrics) do
+            if type(m) == "table" and type(m.label) == "string" and m.label:lower():find("gemini") then
+                local window = tonumber(m.window_secs) or 0
+                if window <= 43200 and (tonumber(m.percent) or 0) == 0 then
+                    needsEnrich = true
+                    break
+                end
+            end
+        end
+    end
+
+    if not needsEnrich then
+        callback(report)
+        return
+    end
+
+    resolveAgyQuota(function(quota)
+        if quota then
+            shared.enrichAntigravityEntry(agyEntry, quota)
+        end
+        callback(report)
+    end)
+end
+
 local function refresh()
     if inFlight then
         queueRefresh()
@@ -210,9 +308,6 @@ local function refresh()
     noctalia.state.set("polling", true)
 
     local started = noctalia.runAsync(COMMAND, function(result)
-        inFlight = false
-        noctalia.state.set("polling", false)
-
         local decoded = result ~= nil and not result.timedOut
             and noctalia.json.decode(result.stdout or "") or nil
         if type(decoded) == "table" and type(decoded.entries) == "table" then
@@ -220,9 +315,17 @@ local function refresh()
             -- so a non-zero exit is no reason to drop the report.
             local safeReport = scrub(decoded)
             keepAntigravityReading(safeReport)
-            noctalia.state.set("report", safeReport)
-            noctalia.state.set("error", failure(""))
+            enrichAntigravity(safeReport, function(finalReport)
+                inFlight = false
+                noctalia.state.set("polling", false)
+                noctalia.state.set("report", finalReport)
+                noctalia.state.set("error", failure(""))
+                if pendingRefresh then refresh() end
+            end)
+            return
         else
+            inFlight = false
+            noctalia.state.set("polling", false)
             noctalia.state.set("error", classify(result))
         end
 
