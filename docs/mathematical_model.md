@@ -283,6 +283,30 @@ Because the upstream API timestamp ($R_{\text{API}}$) reflects the genuine new 7
 - **Sprint Urgency Calibration**: Artificially anchoring to a superseded pre-reset date would incorrectly calculate a dangerously short runway, triggering false sprint urgency ($U_{\text{reset\_weekly}}$) and leading the user to burn through quota prematurely days before the real renewal arrives.
 - **Reset Staggering Coupling**: The Reset Staggering Engine (Section 4) evaluates remaining banked credits and expirations against the authentic post-advancement weekly schedule, guaranteeing optimal token arbitrage without distorted deadlines.
 
+---
+
+### 7. Antigravity Local Session Telemetry Reconciliation
+
+### 7.1 The Remote Endpoint Discrepancy
+Google Antigravity exposes quotas through two channels:
+1. **Local Language Server / CLI Daemon**: Accessible on loopback (`127.0.0.1`), but modern `agy` releases protect the RPC interface with an internal process-private CSRF token (`unauthenticated: missing CSRF token`).
+2. **Remote Cloud Code REST API (`cloudcode-pa.googleapis.com`)**: While third-party quotas (Claude & GPT models) decrement accurately on this endpoint, individual consumer tier accounts report dummy quotas for native **Gemini Models**:
+   $$U_{\text{remote}}(t) = 0\%, \quad R_{\text{remote}}(t) = t + 5\text{h}$$
+   The remote endpoint returns a synthetic floating 5h horizon and zero utilization, failing to track active CLI token consumption.
+
+### 7.2 Rolling Window Detection Heuristic
+In standard rolling-window providers (e.g. Codex, Copilot), idle accounts report synthetic future windows ($R_s = t + T_s$). To prevent uninitiated sessions from showing false active countdowns on idle days, `isSessionStarted(m)` applies the threshold:
+$$\text{Started}(m) = \begin{cases} \text{true} & \text{if } U_s > 0\% \\ \text{true} & \text{if } R_s - t < 0.90 \cdot T_s \\ \text{false} & \text{otherwise} \end{cases}$$
+Because $U_{\text{remote}} = 0\%$ and $R_{\text{remote}} - t \approx 4\text{h } 59\text{m} \ge 0.90 \cdot T_s$, the heuristic previously classified active Gemini sessions as unstarted.
+
+### 7.3 Telemetry Reconciliation Architecture
+To resolve this discrepancy without incurring remote polling delays or requiring elevated RPC credentials, the poller implements a two-tier local telemetry reconciler:
+1. **Real-time Statusline Observation Snapshot**: Whenever `agy` executes in any terminal, its configured `statusLine` command writes the active session payload to `agy-statusline.observation.json`. The poller inspects this observation snapshot synchronously in $\mathcal{O}(1)$ time ($\approx 0\text{ms}$ latency):
+   $$U_{\text{local}} = 1.0 - \text{remaining\_fraction}, \quad R_{\text{local}} = \text{reset\_time}$$
+2. **Asynchronous CLI Fallback**: If the observation snapshot is missing or past its expiration ($R_{\text{local}} \le t$), the poller queries `agy -p /quota` asynchronously.
+3. **Metric & Section Enrichment**: The authoritative local values ($U_{\text{local}}, R_{\text{local}}$) overwrite the synthetic remote metrics. `isSessionStarted()` evaluates to `true`, the mathematical urgency factor $S_{\text{urgency}} = 1.0 + 1.80 \cdot (r_{\text{elapsed}})^2$ engages, and the user receives authentic countdowns and pacing telemetry.
+
+
 
 
 
