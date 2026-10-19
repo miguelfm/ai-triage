@@ -268,34 +268,21 @@ The filtering subsystem provides granular control via two settings:
 
 ---
 
-## 6. Automatic Natural Weekly Cycle Memory
+### 6. Dynamic Upstream Weekly Horizon & Allowance Advancement
 
-### 6.1 The Manual Quota Reset Problem
-Providers with rolling 7-day rate limit telemetry (notably OpenAI Codex) establish a scheduled natural renewal cadence $R_{\text{natural}}$ coupled to subscription billing cycles (e.g. Thursdays at 17:45 UTC). When a user consumes an on-demand reset credit or executes a quota reset mid-cycle:
-1. The upstream API resets the secondary window counter to $0\%$ and dynamically emits an artificial floating 7-day timestamp:
-   $$R_{\text{synthetic}} = t_{\text{now}} + 7\text{d}$$
-2. However, the upstream platform does **not** reschedule the subscriber's natural weekly renewal; the real scheduled renewal remains anchored at $R_{\text{natural}} < R_{\text{synthetic}}$.
-3. Blindly accepting $R_{\text{synthetic}}$ distorts the triage engine:
-   - Remaining active working hours $H_w$ are calculated against the distant 7-day horizon rather than the true imminent renewal, incorrectly dampening the triage score into a false `Conserve` or `Balanced` state.
-   - The Weekly Reset Schedule in Column 3 and bar capsule tooltips misleadingly advertise ~7 days of headroom, obscuring the fact that a fresh full allocation will arrive in only a few days or hours.
-   - Credit staggering valuations ($G_{\text{now}}$ and $G_{\text{cycle}}$) compute against false cycle horizons.
+### 6.1 The Rate Limit Reset Mechanism (Codex & Rolling Windows)
+Rate-limited upstream providers (notably OpenAI Codex) operate on rolling and anchor-based 7-day quota windows ($T_w = 7\text{d} = 604800\text{s}$). When a user redeems an on-demand reset credit (*Banked Reset*) or purchases a quota reset (*Instant Reset*):
+1. **Allowance Advancement**: Upstream platforms implement resets via *allowance advancement* ("pulling the normal weekly allowance forward"). The reset does not create a parallel or isolated token block; instead, it immediately moves the subscriber's upcoming weekly quota into the present.
+2. **Anchor Shift**: Concurrently, the platform resets usage counters ($U_{i,w} \leftarrow 0\%$) and **permanently shifts the scheduled weekly renewal horizon** to 7 days from redemption / first post-reset request:
+   $$R_{\text{effective}} = t_{\text{now}} + 7\text{d}$$
+3. **Cancellation of Prior Renewal Date**: The former renewal anchor (e.g. Thursday at 17:45 UTC) is cancelled and superseded. There is **no secondary or background reset** on the previous calendar date.
 
-### 6.2 Cycle Memory & Preservation Engine
-The automatic natural weekly cycle memory subsystem decouples manual quota resets from the scheduled renewal timeline:
-1. **Continuous Cadence Tracking**: During normal ongoing operation, $R_{\text{natural}}$ is recorded and persisted across Noctalia state and `$XDG_STATE_HOME/noctalia/ai_triage_cycles.json`.
-2. **Manual Reset Detection**: A manual reset event is identified whenever:
-   $$\Delta U_{i,w} \le -20\% \quad\lor\quad \Delta \text{credits} < 0 \quad\lor\quad \left(R_{\text{API}} - t_{\text{now}} \ge 6.0\text{d} \;\land\; R_{\text{natural}} > t_{\text{now}} \;\land\; R_{\text{natural}} < R_{\text{API}} - 1\text{d}\right)$$
-   Upon detection, `manual_reset_active` transitions to `true`, and $R_{\text{natural}}$ is strictly protected from being overwritten by $R_{\text{synthetic}}$.
-3. **Credit Anchor Inference**: If cycle memory is uninitialized or unanchored when an artificial ~7-day reset is observed ($R_{\text{API}} - t_{\text{now}} \ge 6.0\text{d}$ and either $R_{\text{natural}}$ is uninitialized or $R_{\text{natural}} \ge R_{\text{API}} - 1\text{d}$), the engine inspects remaining promotional reset credit expiration timestamps $E_k$. Since platform reset credits expire synchronously with weekly renewals ($E_k = R_{\text{natural}} + 7m\text{d}$), the engine infers:
-   $$R_{\text{natural}} = \min \{ E_k - 7m\text{d} \mid E_k - 7m\text{d} > t_{\text{now}} \;\land\; E_k - 7m\text{d} < R_{\text{API}} - 1\text{d} \}$$
-   and transitions `manual_reset_active` to `true`.
-4. **Natural Renewal Advancement**: When wall-clock time passes the genuine scheduled renewal ($t_{\text{now}} \ge R_{\text{natural}}$):
-   $$R_{\text{natural}} \leftarrow R_{\text{natural}} + 7\text{d}, \quad \text{manual\_reset\_active} \leftarrow \text{false}$$
-   restoring seamless ongoing tracking.
+### 6.2 Telemetry Authority & Pacing Integrity
+Because the upstream API timestamp ($R_{\text{API}}$) reflects the genuine new 7-day renewal timeline:
+- **Authoritative Telemetry**: `ai-triage` synchronizes directly with $R_{\text{API}}$, calculating remaining active working hours $H_w$ over the authentic newly opened 7-day period.
+- **Sprint Urgency Calibration**: Artificially anchoring to a superseded pre-reset date would incorrectly calculate a dangerously short runway, triggering false sprint urgency ($U_{\text{reset\_weekly}}$) and leading the user to burn through quota prematurely days before the real renewal arrives.
+- **Reset Staggering Coupling**: The Reset Staggering Engine (Section 4) evaluates remaining banked credits and expirations against the authentic post-advancement weekly schedule, guaranteeing optimal token arbitrage without distorted deadlines.
 
-### 6.3 Persistence Architecture & Display Reconciler
-- **Storage Strategy**: Cycle memory is mirrored in real time between reactive runtime state (`noctalia.state.weekly_cycle_memory`) and filesystem persistence at `$XDG_STATE_HOME/noctalia/ai_triage_cycles.json` (falling back to `~/.local/state/noctalia/ai_triage_cycles.json`).
-- **Telemetry Reconciliation**: When `manual_reset_active` is asserted, the subsystem overrides `wMetric.reset_at` with $R_{\text{natural}}$ and recalculates `wMetric.detail` ($d_{\text{rem}}$, $\%_{\text{elapsed}}$, $\Delta_{\text{pace}}$) relative to the authentic weekly cadence. The original API timestamp is safely preserved in `wMetric.raw_reset_at` to guarantee idempotent downstream evaluation across poller updates, panel open events, and bar widget rendering.
 
 
 

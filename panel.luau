@@ -1457,7 +1457,6 @@ end
 
 noctalia.state.watch("report", function(value)
     if type(value) == "table" then
-        shared.reconcileReportCycles(value)
         report = value
         failure = NO_FAILURE
         render()
@@ -1485,9 +1484,6 @@ function onOpen(context)
     end
     requestRefresh()
     report = noctalia.state.get("report")
-    if type(report) == "table" then
-        shared.reconcileReportCycles(report)
-    end
     failure = asFailure(noctalia.state.get("error"))
     polling = noctalia.state.get("polling") == true
     refreshQueued = noctalia.state.get("refresh_queued") == true

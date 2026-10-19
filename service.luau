@@ -220,7 +220,6 @@ local function refresh()
             -- so a non-zero exit is no reason to drop the report.
             local safeReport = scrub(decoded)
             keepAntigravityReading(safeReport)
-            shared.reconcileReportCycles(safeReport)
             noctalia.state.set("report", safeReport)
             noctalia.state.set("error", failure(""))
         else
@@ -272,6 +271,12 @@ function onIpc(event, payload)
         noctalia.state.set("kickstarted_at", st)
     end
 end
+
+-- Clean up legacy cycle memory file from v1.6.0 if present
+pcall(function()
+    local path = noctalia and noctalia.expandPath and noctalia.expandPath("~/.local/state/noctalia/ai_triage_cycles.json")
+    if path and os and os.remove then os.remove(path) end
+end)
 
 noctalia.setUpdateInterval(intervalMs())
 refresh()

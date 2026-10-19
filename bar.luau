@@ -652,7 +652,6 @@ end
 
 noctalia.state.watch("report", function(value)
     if type(value) == "table" then
-        shared.reconcileReportCycles(value)
         report = value
         failure = NO_FAILURE
         render()
@@ -700,9 +699,6 @@ function onScroll(_axis, steps, _startsGesture)
 end
 
 report = noctalia.state.get("report")
-if type(report) == "table" then
-    shared.reconcileReportCycles(report)
-end
 failure = asFailure(noctalia.state.get("error"))
 
 -- Live countdowns without waking the CLI.
