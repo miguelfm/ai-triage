@@ -25,7 +25,7 @@ local ratio, headline, elapsedPercent = shared.ratio, shared.headline, shared.el
 local modelHeadlines, isCritical, dualMetrics = shared.modelHeadlines, shared.isCritical, shared.dualMetrics
 local pace, SEVERITY_RANK = shared.pace, shared.SEVERITY_RANK
 local NO_FAILURE, asFailure = shared.NO_FAILURE, shared.asFailure
-local unavailable, warning = shared.unavailable, shared.warning
+local unavailable = shared.unavailable
 local getTypography = shared.getTypography
 
 local function getBarTypography()
@@ -187,7 +187,38 @@ local function pinnedDown()
             return entry
         end
     end
+    if account == "" then
+        for _, entry in ipairs(rawReportEntries()) do
+            if baseProvider(entry.id) == vendor and unavailable(entry)
+                and not shared.isModelHidden(entry.id, entry.display_name or entry.id) then
+                return entry
+            end
+        end
+    end
     return nil
+end
+
+local function failedEntries()
+    local failed = {}
+    for _, entry in ipairs(rawReportEntries()) do
+        if type(entry) == "table" and unavailable(entry)
+            and not shared.isModelHidden(entry.id, entry.display_name or entry.name or entry.id) then
+            failed[#failed + 1] = entry
+        end
+    end
+    return failed
+end
+
+local function appendDiagnostic(rows, entry)
+    local issue = shared.diagnostic(entry)
+    if not issue then return end
+    rows[#rows + 1] = { key = tostring(entry.display_name or entry.id), value = noctalia.tr(issue.titleKey) }
+    local action = noctalia.tr(issue.actionKey, issue.actionArgs)
+    if issue.command then action = action .. " " .. issue.command end
+    rows[#rows + 1] = { key = noctalia.tr("ui.diagnostic.recommended_action"), value = action }
+    if issue.detail ~= "" then
+        rows[#rows + 1] = { key = noctalia.tr("ui.details"), value = issue.detail }
+    end
 end
 
 -- `calm` is the colour when the CLI has raised nothing, and every colour when
@@ -523,9 +554,14 @@ local function tooltip(picked, hidden)
         -- config for a failure the CLI already worded.
         local down = pinnedDown()
         if down ~= nil then
-            local warn = warning(down)
-            if warn == "" then warn = noctalia.tr("ui.unavailable") end
-            return { { key = tostring(down.display_name or down.id), value = warn } }
+            local rows = {}
+            appendDiagnostic(rows, down)
+            return rows
+        end
+        if vendor == "auto" then
+            local rows = {}
+            for _, entry in ipairs(failedEntries()) do appendDiagnostic(rows, entry) end
+            if #rows > 0 then return rows end
         end
         local waiting = vendor == "auto" and noctalia.tr("ui.waiting")
             or noctalia.tr("ui.not_configured", { vendor = wantedEntryId() })
@@ -536,7 +572,7 @@ local function tooltip(picked, hidden)
     for _, entry in ipairs(picked) do
         local title = tostring(entry.display_name or entry.id)
         if entry.status == "error" then
-            rows[#rows + 1] = { key = title, value = tostring(entry.error or noctalia.tr("ui.unavailable")) }
+            appendDiagnostic(rows, entry)
         else
             local submodels = modelHeadlines(entry)
             if vendor == "gemini" then
@@ -591,6 +627,11 @@ local function tooltip(picked, hidden)
             end
         end
     end
+    if vendor == "auto" then
+        for _, entry in ipairs(failedEntries()) do
+            if not shared.readFailure(entry) then appendDiagnostic(rows, entry) end
+        end
+    end
     if hidden > 0 then
         rows[#rows + 1] = { key = noctalia.tr("ui.hidden_label"), value = noctalia.tr("ui.hidden_value", { count = hidden }) }
     end
@@ -639,6 +680,7 @@ local function render()
         -- One glyph, coloured by the state. A pinned provider that is down or
         -- waiting uses its own glyph so the capsule remains identifiable.
         local down = pinnedDown()
+        if down == nil and vendor == "auto" then down = failedEntries()[1] end
         local glyphName = (down ~= nil and providerGlyph(down.id))
             or (vendor ~= "auto" and providerGlyph(wantedEntryId()))
             or "scale"

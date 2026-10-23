@@ -188,7 +188,7 @@
       "spawn_failed": "Could not start ai-usagebar",
       "spawn_failed_hint": "The process never started. Try again in a moment.",
       "timed_out": "ai-usagebar did not answer",
-      "timed_out_hint": "The read took too long. A provider may be answering slowly."
+      "timed_out_hint": "Check the connection and provider availability, then try again. Increase the quota query timeout in settings if reads remain slow."
     },
     "hidden_label": "Not shown",
     "hidden_value": "{count} more, click to open the panel",
@@ -219,6 +219,39 @@
     "updated": "Updated",
     "updated_ago": "Updated {minutes} min ago",
     "updated_now": "Updated just now",
-    "waiting": "Waiting for usage data"
+    "waiting": "Waiting for usage data",
+    "diagnostic": {
+      "cause": {
+        "signed_out": "Sign-in required",
+        "authentication": "Authentication failed",
+        "missing_key": "API key missing",
+        "permission": "Access denied",
+        "rate_limited": "Requests rate limited",
+        "server": "Provider server error",
+        "timeout": "Quota query timed out",
+        "network": "Connection failed",
+        "schema": "Usage response not understood",
+        "local_server": "Antigravity session unavailable",
+        "credentials": "Credential problem",
+        "unknown": "Usage unavailable"
+      },
+      "action": {
+        "login": "Sign in from a terminal, then refresh:",
+        "named_account": "Reconnect account {account} in ai-usagebar, then refresh.",
+        "missing_key": "Check this provider’s API key in ai-usagebar, then refresh.",
+        "reconnect": "Sign in again in the provider’s app or CLI, then refresh.",
+        "permission": "Check the account’s permissions and subscription, then refresh.",
+        "rate_limited": "Wait for the retry window. The next automatic refresh will try again.",
+        "server": "Wait for the provider to recover, then refresh.",
+        "timeout": "Check the connection and provider availability, then refresh. Increase the query timeout if it keeps happening.",
+        "network": "Check the internet connection, VPN or proxy, then refresh.",
+        "schema": "Update ai-usagebar and refresh. If it persists, report the response format error.",
+        "local_server": "Open Antigravity or an agy session, sign in if needed, then refresh.",
+        "credentials": "Check the saved credentials and file permissions in ai-usagebar, then refresh.",
+        "unknown": "Refresh and check the provider’s status if the problem persists."
+      },
+      "copy_command": "Copy sign-in command",
+      "recommended_action": "Recommended action"
+    }
   }
 }

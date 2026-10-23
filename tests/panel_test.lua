@@ -151,8 +151,52 @@ local rejectedProvider = {
     },
 }
 local rejectedLabels = labels(loadPanel(rejectedProvider))
-assert(not has(rejectedLabels, "Claude"),
-       "a terminal provider should leave the panel immediately")
+assert(has(rejectedLabels, "Claude") and has(rejectedLabels, "ui.diagnostic.cause.authentication"),
+       "an authentication failure must keep its provider and cause visible")
+assert(has(rejectedLabels, "claude auth login"), "Claude must show the command that restores sign-in")
+
+local diagnosticCases = {
+    { "credentials error: no access token; run `claude` to log in", "signed_out", "login" },
+    { "HTTP 429: Rate limited", "rate_limited", "rate_limited" },
+    { "HTTP 503: authentication service unavailable", "server", "server" },
+    { "HTTP 403: forbidden", "permission", "permission" },
+    { "network transport error: DNS lookup failed", "network", "network" },
+    { "network transport error: request timed out", "timeout", "timeout" },
+}
+for _, case in ipairs(diagnosticCases) do
+    local diagnosticTree = loadPanel({ id = "anthropic", display_name = "Claude", status = "error",
+        error = case[1], metrics = { { label = "Weekly", percent = 95, window_secs = 604800 } } })
+    local texts = labels(diagnosticTree)
+    assert(has(texts, "Claude") and has(texts, "ui.diagnostic.cause." .. case[2]), "failed provider must explain its cause")
+    assert(has(texts, "ui.diagnostic.action." .. case[3]) and has(texts, case[1]), "recommendation and CLI detail must be visible")
+    assert(not has(texts, "95%"), "old quota must not appear current after the read fails")
+    if case[2] ~= "signed_out" then
+        assert(not has(texts, "claude auth login"), "transient and permission failures must not suggest logging in again")
+    end
+end
+
+local signedOut = { id = "anthropic", display_name = "Claude", status = "error",
+    error = "credentials error: no access token", metrics = {} }
+local loginTree, publishLogin, _, loginOpened, loginCopied = loadPanel(signedOut)
+assert(#loginOpened == 0, "rendering a sign-in hint must not run a command")
+for _, button in ipairs(collect(loginTree, "button")) do
+    if button.props.text == "ui.diagnostic.copy_command" then button.props.onClick() break end
+end
+assert(#loginCopied == 1 and loginCopied[1].text == "claude auth login", "the copy action must supply the recommended command")
+local recoveredLabels = labels(publishLogin({ id = "anthropic", display_name = "Claude", status = "ready",
+    metrics = { { label = "Session", percent = 10, window_secs = 18000 } } }))
+assert(not has(recoveredLabels, "claude auth login") and not has(recoveredLabels, "ui.diagnostic.cause.signed_out"),
+    "a successful read must remove the old sign-in warning")
+assert(not has(labels(loadPanel(signedOut, nil, { hidden_services = "anthropic" })), "Claude"),
+    "explicitly hidden providers must remain hidden even after authentication failure")
+
+local globalErrorLabels = labels(loadPanel({ id = "openai", display_name = "Codex", status = "ready",
+    metrics = { { label = "Session", percent = 20, window_secs = 18000 } } },
+    { code = "timed_out", detail = "quota command exceeded its deadline" }))
+assert(has(globalErrorLabels, "ui.error.timed_out") and has(globalErrorLabels, "quota command exceeded its deadline"),
+    "a failed refresh must remain visible alongside the earlier report")
+assert(has(labels(loadPanel({ entries = {} }, { code = "timed_out", detail = "empty previous report" })),
+    "ui.error.timed_out"), "an empty earlier report must not conceal a failed refresh")
 
 local normalReport = {
     entries = {

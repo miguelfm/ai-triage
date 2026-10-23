@@ -189,7 +189,10 @@ local stale = { entries = { { id = "anthropic", display_name = "Claude", status 
     sections = { { type = "text", label = "HTTP 429", value = "Rate limited" } } } } }
 h = host(stale, { vendor = "anthropic" })
 h.load("bar.luau")
-assert(h.tooltip()[1].value == "HTTP 429: Rate limited", "the failed query must retain its actionable diagnosis")
+assert(h.tooltip()[1].value == "ui.diagnostic.cause.rate_limited"
+    and h.tooltip()[2].value == "ui.diagnostic.action.rate_limited"
+    and h.tooltip()[3].value == "HTTP 429: Rate limited",
+    "the failed query must show a cause, an action and its original detail")
 
 -- End-to-end rendering with a real report, optionally supplied by the Python
 -- runner. The injected decoder hands the CLI document to the actual poller.

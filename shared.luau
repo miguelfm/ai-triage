@@ -189,6 +189,85 @@ function M.readFailure(entry)
         and tostring(entry.error or ""):find("^schema mismatch:") ~= nil
 end
 
+-- Diagnose the failed read, rather than inferring whether the provider itself
+-- is usable. In particular, 429/5xx must never tell the user to log out.
+local API_KEY_PROVIDERS = {
+    anthropic_api = true, zai = true, openrouter = true, deepseek = true,
+    deepinfra = true, kilo = true, novita = true, synthetic = true,
+    moonshot = true, grok = true, minimax = true, ["opencode-go"] = true,
+    ollama = true, orcarouter = true, lyceum = true,
+}
+
+function M.diagnostic(entry)
+    if type(entry) ~= "table" or not M.unavailable(entry) then return nil end
+    local detail = M.warning(entry)
+    local text = detail:lower()
+    local status = tonumber(text:match("http%s*:?%s*(%d%d%d)"))
+    local function has(...)
+        for _, phrase in ipairs({ ... }) do
+            if text:find(phrase, 1, true) then return true end
+        end
+        return false
+    end
+    local code
+    if status == 429 or has("rate limited", "rate limit", "too many requests") then
+        code = "rate_limited"
+    elseif status and status >= 500 then
+        code = "server"
+    elseif has("no local server found", "requires a csrf token", "no usable local server") then
+        code = "local_server"
+    elseif has("timed out", "timeout", "time out") then
+        code = "timeout"
+    elseif has("network transport error", "connection", "dns", "resolve host", "tls", "http 000") then
+        code = "network"
+    elseif has("schema mismatch:", "json error:") then
+        code = "schema"
+    elseif has("no api key", "missing api key", "api key is not set") then
+        code = "missing_key"
+    elseif has("no access token", "not logged in", "signed out", "run `claude` to log in") then
+        code = "signed_out"
+    elseif status == 401 or M.terminalAuth(entry)
+        or has("authentication rejected", "invalid_grant", "token expired", "token has expired",
+            "invalid api key", "api key is invalid", "unauthorized") then
+        code = "authentication"
+    elseif status == 403 then
+        code = "permission"
+    elseif has("credentials error:") then
+        code = "credentials"
+    else
+        code = "unknown"
+    end
+
+    local action = code
+    local command = nil
+    local account = tostring(entry and entry.id or ""):match("@(.+)$")
+    if code == "signed_out" or code == "authentication" then
+        local provider = M.baseProvider(entry and entry.id)
+        if account then
+            action = "named_account"
+        elseif provider == "anthropic" then
+            action, command = "login", "claude auth login"
+        elseif provider == "openai" then
+            action, command = "login", "codex login"
+        elseif provider == "copilot" then
+            action, command = "login", "gh auth login"
+        elseif provider == "kiro" then
+            action, command = "login", "kiro-cli login"
+        elseif provider == "nous" then
+            action, command = "login", "ai-usagebar auth nous login"
+        elseif provider == "antigravity" then
+            action = "local_server"
+        elseif API_KEY_PROVIDERS[provider] then
+            action = "missing_key"
+        else
+            action = "reconnect"
+        end
+    end
+    return { code = code, titleKey = "ui.diagnostic.cause." .. code,
+        actionKey = "ui.diagnostic.action." .. action, actionArgs = { account = account or "" },
+        command = command, detail = detail, retryable = code ~= "rate_limited" }
+end
+
 -- Anything else in the `error` slot means no failure.
 M.NO_FAILURE = { code = "", detail = "" }
 
@@ -1630,6 +1709,7 @@ end
 -- K_obs = Delta Session % / Delta Weekly %
 function M.recordTelemetrySample(item)
     if type(item) ~= "table" then return end
+    if item.entry and M.unavailable(item.entry) then return end
     local sMetric = item.sessionMetric
     local wMetric = item.weeklyMetric
     if type(sMetric) ~= "table" or type(wMetric) ~= "table" then return end

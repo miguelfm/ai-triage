@@ -20,7 +20,6 @@ local elapsedPercent = shared.elapsedPercent
 local requestRefresh = shared.requestRefresh
 local unavailable = shared.unavailable
 local NO_FAILURE, asFailure = shared.NO_FAILURE, shared.asFailure
-local isConfigured = shared.isConfigured
 local kickstartTarget = shared.kickstartTarget
 local collectModelItems = shared.collectModelItems
 local collectResetCredits = shared.collectResetCredits
@@ -49,10 +48,6 @@ local function cardStyle(gap, fill, border, padding)
     }
 end
 
-local function configured(entry)
-    return isConfigured(entry)
-end
-
 local function entries()
     return shared.entries(report)
 end
@@ -61,7 +56,9 @@ local function panelCandidates()
     if type(report) ~= "table" or type(report.entries) ~= "table" then return {} end
     local list = {}
     for _, entry in ipairs(report.entries) do
-        if type(entry) == "table" and not shared.terminalAuth(entry) and configured(entry) then
+        -- A provider included by the CLI remains visible after authentication
+        -- failures. Only the user's explicit visibility filters hide it.
+        if type(entry) == "table" then
             local id = entry.id
             local name = entry.display_name or entry.name or entry.id
             if not shared.isModelHidden(id, name) then
@@ -503,8 +500,39 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
         })
     end
 
-    if metric == nil or unavailable(item.entry) then
-        local unavail = unavailable(item.entry)
+    if unavailable(item.entry) then
+        local issue = shared.diagnostic(item.entry)
+        local children = {
+            ui.row({ gap = 6, align = "center" }, titleChildren),
+            ui.label({ text = noctalia.tr(issue.titleKey), fontSize = fs(13),
+                fontWeight = "semibold", color = "error", maxLines = 2 }),
+            ui.label({ text = noctalia.tr(issue.actionKey, issue.actionArgs), fontSize = fs(12),
+                color = "on_surface", maxLines = 3 }),
+        }
+        if issue.command then
+            children[#children + 1] = ui.label({ text = issue.command, fontSize = fs(11),
+                fontFamily = "monospace", color = "on_surface", maxLines = 2 })
+        end
+        if issue.detail ~= "" then
+            children[#children + 1] = ui.label({ text = issue.detail, fontSize = fs(10),
+                color = "on_surface_variant", maxLines = 3, tooltip = issue.detail })
+        end
+        local actions = {}
+        if issue.command and type(noctalia.copyToClipboard) == "function" then
+            actions[#actions + 1] = ui.button({ text = noctalia.tr("ui.diagnostic.copy_command"),
+                glyph = "copy", variant = "outline", controlSize = "sm",
+                onClick = function() noctalia.copyToClipboard(issue.command) end })
+        end
+        if issue.retryable then
+            actions[#actions + 1] = ui.button({ text = noctalia.tr("ui.refresh"),
+                glyph = "refresh", variant = "outline", controlSize = "sm",
+                enabled = not polling, onClick = requestRefresh })
+        end
+        if #actions > 0 then children[#children + 1] = ui.row({ gap = 6 }, actions) end
+        return ui.column(cardStyle(6, "error/0.06", "error/0.25", 10), children)
+    end
+
+    if metric == nil then
         return ui.column({
             gap = 6,
             paddingH = 10,
@@ -517,10 +545,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
             ui.row({ gap = 4, align = "center" }, {
                 ui.row({ gap = 4, align = "center" }, titleChildren),
                 ui.spacer({ flexGrow = 1 }),
-                unavail and ui.row({ gap = 4, align = "center", paddingH = 6, paddingV = 2, radius = 5, fill = "error/0.12" }, {
-                    ui.glyph({ name = "alert-circle", size = gs(12), color = "error" }),
-                    ui.label({ text = noctalia.tr("ui.unavailable"), fontSize = fs(12), fontWeight = "medium", color = "error" }),
-                }) or ui.label({ text = "—", fontSize = fs(14), color = "on_surface_variant" }),
+                ui.label({ text = "—", fontSize = fs(14), color = "on_surface_variant" }),
             }),
             ui.column({ gap = 1, align = "stretch" }, {
                 ui.progress({ progress = 0, fill = "on_surface/0.10", track = "on_surface/0.05", radius = 4, height = 8 }),
@@ -529,7 +554,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
             ui.row({ gap = 8, align = "center", justify = "center" }, {
                 ui.row({ gap = 5, align = "center", paddingH = 8, paddingV = 2, radius = 5, fill = "on_surface/0.06" }, {
                     ui.glyph({ name = "slash", size = gs(12), color = "on_surface_variant" }),
-                    ui.label({ text = unavail and "Offline" or "Not reported", fontSize = fs(12), color = "on_surface_variant" }),
+                    ui.label({ text = "Not reported", fontSize = fs(12), color = "on_surface_variant" }),
                 }),
             }),
         })
@@ -1049,13 +1074,19 @@ local function renderColumns(candidates, typo)
     topRowChildren[#topRowChildren + 1] = ui.row({ gap = 4, align = "center" }, headerActions)
 
     local modelItems = collectModelItems(candidates)
-    local staggerPlan, providerStats = shared.analyzeResetCredits(candidates)
-    local resetCredits = collectResetCredits(candidates, staggerPlan)
+    local healthy = {}
+    for _, entry in ipairs(candidates) do
+        if not unavailable(entry) then healthy[#healthy + 1] = entry end
+    end
+    local staggerPlan, providerStats = shared.analyzeResetCredits(healthy)
+    local resetCredits = collectResetCredits(healthy, staggerPlan)
 
     local scheduleConfig = getScheduleConfig()
 
     -- Sort models by triage score (considering session & weekly pacing, schedule-aware active hours, and staggering)
     table.sort(modelItems, function(a, b)
+        local aFailed, bFailed = unavailable(a.entry), unavailable(b.entry)
+        if aFailed ~= bFailed then return not aFailed end
         local aScore = calculateModelTriageScore(a, staggerPlan, os.time(), scheduleConfig, true)
         local bScore = calculateModelTriageScore(b, staggerPlan, os.time(), scheduleConfig, true)
         if math.abs(aScore - bScore) > 0.01 then
@@ -1099,7 +1130,7 @@ local function renderColumns(candidates, typo)
     for _, item in ipairs(modelItems) do
         local wM = item.weeklyMetric
         local baseId = item.providerId or (item.entry and item.entry.id)
-        if wM and not seenWeekly[baseId] then
+        if wM and not unavailable(item.entry) and not seenWeekly[baseId] then
             seenWeekly[baseId] = true
             local at = parseIso(wM.reset_at)
             local wWindow = tonumber(wM.window_secs) or 604800
@@ -1399,6 +1430,8 @@ local function renderColumns(candidates, typo)
         ui.separator({ orientation = "horizontal", color = "outline", opacity = 0.20 }),
         ui.row({ gap = 12, flexGrow = 1, align = "stretch" }, columns),
     }
+    -- Keep a failed overall refresh visible even when an earlier report exists.
+    if failure.code ~= "" then table.insert(mainChildren, 3, errorBlock(typo)) end
 
     panel.render(ui.column({
         gap = 8,
@@ -1417,7 +1450,8 @@ function render()
     local typo = getTypography()
     local fs = typo.fontSize
     local gs = typo.glyphSize
-    if failure.code ~= "" and report == nil then
+    local candidates = panelCandidates()
+    if failure.code ~= "" and #candidates == 0 then
         panel.render(ui.column({ flexGrow = 1, padding = 14, align = "center", justify = "center" }, {
             ui.column({ gap = 10, width = 320 }, {
                 ui.row({ gap = 8, align = "center" }, {
@@ -1430,8 +1464,6 @@ function render()
         }))
         return
     end
-
-    local candidates = panelCandidates()
 
     if #candidates > 0 then
         renderColumns(candidates, typo)

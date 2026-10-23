@@ -4,6 +4,10 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
+**Version 1.7.0 adds actionable failure diagnostics.** Provider cards and bar
+tooltips explain failed reads and recommend the next action, including a copyable
+Claude sign-in command. See the [diagnostic behavior and validation](docs/ai_usagebar_compatibility.md#failure-diagnostics-in-170).
+
 ## Plugin
 
 | Field | Value |
@@ -58,7 +62,8 @@ Install the respective CLI for any backend provider you wish to prime.
 - **Reset Credit Collision & Staggering Engine**: Detects concurrent on-demand reset credit expirations across providers (e.g. Claude and Codex expiring in the same week). Protects against credit forfeiture when a credit expires on the same day as the weekly renewal by enforcing a minimum 3-day runway for deferrals, triggering last-chance sprint burn, and desynchronizing collisions. Recommends claiming a reset (`⭐ Claim Reset`) once the week is spent ($\ge 95\%$) or when nearing expiration peril, with one-click dashboard access.
 - **Streamlined Triage Panel**: An aligned, three-column ranking view displaying provider identity, dynamic urgency score, real-time status badges, weekly renewal timeline, and credit staggering strategy. The top row is always your optimal routing choice.
 - **Service & Model Visibility Filtering**: Allows hiding specific sub-models or third-party tiers (such as Antigravity's "Claude & GPT OSS") via `hide_claude_oss` or `hidden_services` while retaining full visibility, pacing, and telemetry for other tiers like Gemini, Codex, or Claude Pro across both the status bar capsule and the triage panel. Hidden exhausted tiers are excluded from blocking warnings. When a pinned bar capsule targets a hidden tier or service, the capsule dynamically collapses (`barWidget.setVisible(false)`), reclaiming taskbar space without leaving empty gaps or fallback glyphs.
-- **Provider Identity & Outage Resilience**: Transient outages (such as upstream HTTP 429 Rate Limits or connectivity interruptions) preserve the provider's recognizable icon and identity in error tint rather than falling back to an ambiguous scale icon, presenting actionable diagnostic tooltips on the bar and maintaining dedicated Offline indicator cards within the triage panel.
+- **Provider Identity & Outage Resilience**: Transient outages (such as upstream HTTP 429 Rate Limits or connectivity interruptions) preserve the provider's recognizable icon and identity in error tint rather than falling back to an ambiguous scale icon, presenting actionable diagnostic tooltips on the bar and maintaining dedicated diagnostic cards within the triage panel.
+- **Actionable Failure Diagnostics**: Failed providers stay visible in the panel with the cause, recommended action and original CLI detail. Missing or rejected Claude credentials show `claude auth login` and a copy button; rate limits, server outages, permissions, network failures and response format errors have separate guidance. Automatic bar tooltips retain these diagnostics alongside working providers, and successful refreshes clear them.
 - **Adaptive Geometry & Native Scrolling**: Calibrated 780px panel height with per-column native scrolling (`ui.scroll`) to fit all standard model cards, renewal timelines, and reset credits comfortably across typography presets (including Huge / 130%) with zero clipping.
 
 ## Usage

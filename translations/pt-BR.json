@@ -176,7 +176,7 @@
       "spawn_failed": "Não foi possível iniciar o ai-usagebar",
       "spawn_failed_hint": "O processo nunca foi iniciado. Tente novamente em instantes.",
       "timed_out": "ai-usagebar não respondeu",
-      "timed_out_hint": "A leitura demorou muito. Um provedor pode estar respondendo lentamente."
+      "timed_out_hint": "Verifique a conexão e a disponibilidade do provedor e tente novamente. Aumente o tempo limite da consulta de cotas nas configurações se as leituras continuarem lentas."
     },
     "hidden_label": "Não exibido",
     "hidden_value": "Mais {count}, clique para abrir o painel",
@@ -188,6 +188,39 @@
     "retry": "Tente novamente",
     "stale_hint": "exibindo os últimos dados conhecidos",
     "title": "AI Triage",
-    "unavailable": "Indisponível"
+    "unavailable": "Indisponível",
+    "diagnostic": {
+      "cause": {
+        "signed_out": "Login necessário",
+        "authentication": "Falha de autenticação",
+        "missing_key": "Chave de API ausente",
+        "permission": "Acesso negado",
+        "rate_limited": "Limite de consultas atingido",
+        "server": "Erro no servidor do provedor",
+        "timeout": "A consulta de cotas excedeu o tempo limite",
+        "network": "Falha de conexão",
+        "schema": "Resposta de uso não reconhecida",
+        "local_server": "Sessão do Antigravity indisponível",
+        "credentials": "Problema nas credenciais",
+        "unknown": "Uso indisponível"
+      },
+      "action": {
+        "login": "Entre na conta pelo terminal e atualize:",
+        "named_account": "Reconecte a conta {account} no ai-usagebar e atualize.",
+        "missing_key": "Verifique a chave de API deste provedor no ai-usagebar e atualize.",
+        "reconnect": "Entre novamente no aplicativo ou CLI do provedor e atualize.",
+        "permission": "Verifique as permissões e a assinatura da conta e atualize.",
+        "rate_limited": "Aguarde o prazo de nova tentativa. A próxima atualização automática tentará novamente.",
+        "server": "Aguarde a recuperação do provedor e atualize.",
+        "timeout": "Verifique a conexão e a disponibilidade do provedor e atualize. Aumente o tempo limite se o problema persistir.",
+        "network": "Verifique a conexão com a internet, VPN ou proxy e atualize.",
+        "schema": "Atualize o ai-usagebar e consulte novamente. Se persistir, reporte o erro no formato da resposta.",
+        "local_server": "Abra o Antigravity ou uma sessão do agy, entre na conta se necessário e atualize.",
+        "credentials": "Verifique as credenciais salvas e as permissões dos arquivos no ai-usagebar e atualize.",
+        "unknown": "Atualize e verifique o estado do provedor se o problema persistir."
+      },
+      "copy_command": "Copiar comando de login",
+      "recommended_action": "Ação recomendada"
+    }
   }
 }

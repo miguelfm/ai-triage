@@ -72,6 +72,13 @@ def main():
             for key in option["label_key"].split("."):
                 node = node.get(key, {})
             assert isinstance(node, str), f"missing {path}: {option['label_key']}"
+        diagnostic = translations["ui"]["diagnostic"]
+        english = json.loads(Path("translations/en.json").read_text())["ui"]["diagnostic"]
+        for group in ["cause", "action"]:
+            assert diagnostic[group].keys() == english[group].keys(), f"incomplete {path}: diagnostic {group}"
+            for key, message in diagnostic[group].items():
+                assert set(re.findall(r"{(\w+)}", message)) == set(re.findall(r"{(\w+)}", english[group][key])), \
+                    f"incorrect diagnostic placeholders: {path} {key}"
     print(f"ok: {cli('--version').strip()}, {len(ids)} providers selectable; translations complete", flush=True)
     command = ["lua", "tests/compatibility_test.lua"]
     env = {**os.environ, "TZ": "America/New_York"}

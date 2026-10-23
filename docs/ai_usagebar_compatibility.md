@@ -1,6 +1,7 @@
 # ai-usagebar compatibility audit
 
-AI Triage **1.6.3** includes the compatibility corrections documented below.
+AI Triage **1.6.3** introduced the compatibility corrections documented below.
+Version **1.7.0** adds the failure diagnostics described in the next section.
 
 Checked on 2026-10-23 against the latest published release,
 [v1.43.0](https://github.com/akitaonrails/ai-usagebar/releases/tag/v1.43.0),
@@ -28,6 +29,42 @@ and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob
 | Failures and stale data | HTTP diagnostics remain visible in pinned tooltips; stale HTTP-error readings are not treated as live quota. Successful reads replace failures. Existing redaction tests continue to pass. |
 | Antigravity reconciliation | The plugin only enriches default-account Cloud Code fallback readings (`Source: Google API`). It preserves newer upstream `agy`/statusline readings instead of querying the default account again. |
 
+## Failure diagnostics in 1.7.0
+
+Failed providers remain visible in the panel, including HTTP 401/403 responses
+that previously removed their cards. Each failure shows a classified cause, a
+recommended action and the CLI's original diagnostic. Explicitly hidden providers
+remain hidden. The automatic bar continues to meter working providers while its
+tooltip retains failed providers and their recovery guidance.
+
+| Cause | Recommended action |
+| --- | --- |
+| Missing or rejected default Claude login | Run `claude auth login`, then refresh. The panel offers a command copy button. |
+| Named account login failure | Reconnect that named account in ai-usagebar, then refresh. |
+| Missing or rejected API key | Check the provider's API key configuration, then refresh. |
+| HTTP 403 without a specific authentication rejection | Check account permissions and subscription. |
+| HTTP 429 | Wait for the retry window and the next automatic refresh. |
+| HTTP 5xx | Wait for the provider to recover. |
+| Connection or timeout | Check network/VPN/proxy or increase the query timeout when appropriate. |
+| Unexpected response format | Update ai-usagebar; report persistent schema errors. |
+| Missing local Antigravity session | Open Antigravity or an `agy` session, sign in if needed, then refresh. |
+| Credential file problem | Check saved credentials and file permissions. |
+
+Rate-limit and server failures take precedence over authentication words in the
+same error, so they never recommend logging in again. Unknown failures preserve
+the original detail with a general refresh/status recommendation. A failed
+overall quota refresh also remains visible when an older report is available.
+Successful reads remove the old diagnosis. Failed quota snapshots do not enter
+calibration, reset-credit recommendations or renewal schedules.
+
+The failure cards were also checked visually in an isolated temporary Noctalia
+preview with simulated sign-in, API-key and rate-limit errors. The preview was
+removed after verification; the live provider logins were unchanged.
+
+These messages depend on the diagnostic ai-usagebar reports: an upstream error
+that withholds its cause cannot be made more specific reliably. The panel's
+sign-in command is copied only when its button is clicked, for manual execution.
+
 ## Verification
 
 From the repository root:
@@ -41,7 +78,9 @@ noctalia plugins lint .
 noctalia config validate
 ```
 
-The eight Lua suites pass. The Python check compares the installed provider
+The nine Lua suites pass, including 22 diagnostic classification cases, visible
+recovery guidance, clipboard actions, automatic-bar failures and recovery after
+a successful read. The Python check compares the installed provider
 catalog with the recorded 1.43.0 catalog and the manifest/translations. It also
 executes the poller's actual shell command with isolated fake CLI processes to
 check success, failure and timeout markers. With `--live`, it queries configured
