@@ -45,8 +45,28 @@
         "openai": "Codex",
         "openrouter": "OpenRouter",
         "supergrok": "SuperGrok",
-        "zai": "Z.AI"
+        "zai": "Z.AI",
+        "deepinfra": "DeepInfra",
+        "synthetic": "Synthetic",
+        "grokbot": "Grok Bot",
+        "ollama": "Ollama Cloud",
+        "orcarouter": "OrcaRouter",
+        "modelstudio": "Model Studio",
+        "lyceum": "Lyceum",
+        "devin": "Devin",
+        "muse_code": "Muse Code",
+        "cline": "Cline",
+        "claude_oss": "Claude & GPT OSS",
+        "commandcode": "Command Code",
+        "copilot": "GitHub Copilot",
+        "gemini": "Gemini",
+        "nous": "Nous Research",
+        "opencode_go": "OpenCode Go"
       }
+    },
+    "query_timeout_seconds": {
+      "label": "Kota sorgusu zaman aşımı (saniye)",
+      "description": "Tüm sağlayıcılar için en uzun bekleme süresi. Çok sayıda hesap veya yavaş Antigravity başlangıcı için artırın."
     }
   },
   "ui": {

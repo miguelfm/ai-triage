@@ -19,6 +19,13 @@ tarballs on the project's GitHub Releases page. Configure your providers once in
 `~/.config/ai-usagebar/config.toml`; the CLI manages credentials and provider
 connections.
 
+Compatibility checked against **ai-usagebar 1.43.0**, using its version 1 JSON
+contract. All 30 built-in providers are available in the capsule selector.
+The poller also requires coreutils `timeout`: quota reads may take up to three
+minutes by default, allowing Antigravity's 90-second cold startup. Increase the
+advanced query timeout for many accounts. See the [compatibility audit](docs/ai_usagebar_compatibility.md)
+for coverage, limitations and repeatable checks.
+
 When the CLI is missing or provider dashboards are clicked, the panel opens URLs
 with `xdg-open`. Install `xdg-open` alongside `ai-usagebar`.
 
@@ -83,6 +90,7 @@ Plugin-level settings (shared across poller, capsules, and panel):
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `refresh_minutes` | `int` | `5` | Minutes between CLI calls (1 to 120). Countdowns tick locally in between. |
+| `query_timeout_seconds` | `int` | `180` | *(Advanced)* Maximum wait for a quota report (30 to 600 seconds). Includes all providers and accounts. |
 | `font_scale` | `select` | `"normal"` | Typographic scale preset across panel and bar (`compact` 85%, `normal` 100%, `large` 115%, `huge` 130%). |
 | `schedule_aware_triage` | `bool` | `true` | Pace quota consumption against active working hours (discounting sleep and meals). |
 | `sleep_start_hour` | `int` | `0` | Weekday sleep/off-hours start hour (0 to 23; 0 = midnight). Visible when schedule-aware triage is enabled. |
@@ -131,6 +139,24 @@ noctalia msg plugin miguelfm/ai-triage:poller all select anthropic
 ## Documentation
 
 For a comprehensive deep dive into the mathematical triage model, circadian active-hours pacing, model quota gearing ($K_m$), and reset credit collision desynchronization, see the [Internal Technical & Mathematical Specification](docs/mathematical_model.md).
+
+## Development checks
+
+Run the regression suites and the installed CLI's catalog/contract checks from
+the repository root (Lua and Python 3.11+ required):
+
+```sh
+for test in tests/*_test.lua; do
+  TZ=America/New_York lua "$test" || exit
+done
+python tests/check_ai_usagebar.py
+noctalia plugins lint .
+```
+
+Add `--live` to the Python command to query configured providers and exercise
+their real reports through the poller and bar/panel test hosts. The
+[compatibility audit](docs/ai_usagebar_compatibility.md) records the tested
+versions, corrections and coverage limits.
 
 ## License
 

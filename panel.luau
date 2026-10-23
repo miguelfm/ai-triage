@@ -239,7 +239,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
     local wMetric = item and item.weeklyMetric
     local wPct = wMetric and tonumber(wMetric.percent) or 0
     local isWeeklyExhausted = (wMetric ~= nil and wPct >= 100)
-    local baseId = item and shared.baseProvider(item.providerId or (item.entry and item.entry.id))
+    local baseId = item and ((item.entry and item.entry.id) or item.providerId)
 
     -- Reset credit advice: a claim only pays with enough active hours left before the renewal
     local advice = staggerPlan and staggerPlan.creditAdvice and baseId and staggerPlan.creditAdvice[baseId]
@@ -529,7 +529,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
             ui.row({ gap = 8, align = "center", justify = "center" }, {
                 ui.row({ gap = 5, align = "center", paddingH = 8, paddingV = 2, radius = 5, fill = "on_surface/0.06" }, {
                     ui.glyph({ name = "slash", size = gs(12), color = "on_surface_variant" }),
-                    ui.label({ text = "Offline", fontSize = fs(12), color = "on_surface_variant" }),
+                    ui.label({ text = unavail and "Offline" or "Not reported", fontSize = fs(12), color = "on_surface_variant" }),
                 }),
             }),
         })
@@ -1098,7 +1098,7 @@ local function renderColumns(candidates, typo)
     local seenWeekly = {}
     for _, item in ipairs(modelItems) do
         local wM = item.weeklyMetric
-        local baseId = shared.baseProvider(item.providerId or (item.entry and item.entry.id))
+        local baseId = item.providerId or (item.entry and item.entry.id)
         if wM and not seenWeekly[baseId] then
             seenWeekly[baseId] = true
             local at = parseIso(wM.reset_at)

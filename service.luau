@@ -13,6 +13,47 @@ local function intervalMs()
     return math.floor(minutes * 60 * 1000)
 end
 
+-- ai-usagebar 1.42+ allows a cold agy quota read 90 seconds. The report
+-- refreshes providers sequentially, so allow room for the remaining accounts.
+local function queryTimeoutMs()
+    local seconds = tonumber(noctalia.getConfig("query_timeout_seconds")) or 180
+    return math.floor(math.max(30, math.min(600, seconds)) * 1000)
+end
+
+local function runQuery(callback)
+    local timeoutMs = queryTimeoutMs()
+    -- Noctalia caps runAsync at 60s, below agy's own 90s cold-start budget.
+    -- Streams have no host deadline; coreutils timeout bounds the entire CLI
+    -- process group, and the final marker reports completion even on failure.
+    if type(noctalia.runStream) ~= "function" then
+        return noctalia.runAsync(COMMAND, callback, math.min(timeoutMs, 60000))
+    end
+    local marker = "__AI_TRIAGE_EXIT__"
+    local command = "timeout --kill-after=5s " .. tostring(math.floor(timeoutMs / 1000))
+        .. "s " .. COMMAND .. " 2>&1; code=$?; printf '\\n" .. marker .. "%s\\n' \"$code\""
+    local document, diagnostics, completed = "", {}, false
+    return noctalia.runStream(command, function(line)
+        if completed then return end
+        line = tostring(line or "")
+        local code = tonumber(line:match("^" .. marker .. "(%d+)%s*$"))
+        if code then
+            completed = true
+            local result = { exitCode = code, timedOut = code == 124 or code == 137,
+                stdout = document, stderr = table.concat(diagnostics, "\n") }
+            local done = callback
+            -- Noctalia retains a stream callback until script reload. Release
+            -- the report and completion closure after the child has finished.
+            document, diagnostics, callback = "", {}, nil
+            done(result)
+        elseif line:match("^%s*{") then
+            -- usage --json emits one complete JSON document on one line.
+            document = line
+        elseif line:find("%S") and #diagnostics < 10 then
+            diagnostics[#diagnostics + 1] = line:sub(1, 200)
+        end
+    end)
+end
+
 -- Everything the CLI prints reaches the screen, and an error can quote a request
 -- that carried a key. A value runs to the whitespace, quote or brace closing it,
 -- so a JSON field loses its value and keeps its punctuation.
@@ -192,10 +233,14 @@ local function keepAntigravityReading(report)
     end
 end
 
+local lastAgyCliAt = 0
+local cachedAgyCliQuota = nil
+
 local function resolveAgyQuota(callback)
     -- 1. Try reading the observation JSON file first (instant, 0ms)
     local obsPath = noctalia and noctalia.expandPath
         and noctalia.expandPath("~/.local/state/herdr/plugins/herdr-agent-usage/agy-statusline.observation.json")
+    local observationQuota = nil
     if obsPath then
         local raw = nil
         if noctalia and noctalia.readFile then
@@ -218,29 +263,49 @@ local function resolveAgyQuota(callback)
                 if quota and quota.gemini_5h and quota.gemini_5h.reset_at then
                     local at = shared.parseIso(quota.gemini_5h.reset_at)
                     if at and at > os.time() then
-                        callback(quota)
-                        return
+                        -- If the observation file shows an actively started session, return it immediately (0ms)
+                        if (quota.gemini_5h.percent and quota.gemini_5h.percent > 0) or quota.gemini_5h.started then
+                            callback(quota)
+                            return
+                        end
+                        observationQuota = quota
                     end
                 end
             end
         end
     end
 
-    -- 2. Fallback: run `agy -p /quota` asynchronously if `agy` is available
-    if noctalia and noctalia.runAsync then
+    -- Check if we have cached CLI quota from a recent authoritative query
+    local now = os.time()
+    if cachedAgyCliQuota and cachedAgyCliQuota.gemini_5h and cachedAgyCliQuota.gemini_5h.reset_at then
+        local at = shared.parseIso(cachedAgyCliQuota.gemini_5h.reset_at)
+        if at and at > now and (now - lastAgyCliAt) < 180 then
+            callback(cachedAgyCliQuota)
+            return
+        end
+    end
+
+    -- 2. Fallback: run `agy -p /quota` asynchronously if `agy` is available.
+    -- This performs the exact same force-refresh as typing `/usage` in the terminal.
+    -- Throttled to at most once every 30 seconds to avoid spawning unnecessary processes.
+    if noctalia and noctalia.runAsync and (now - lastAgyCliAt) >= 30 then
+        lastAgyCliAt = now
         local spawned = noctalia.runAsync("agy -p /quota", function(result)
             if result and not result.timedOut and result.exitCode == 0 and result.stdout then
                 local quota = shared.parseAgyCliQuota(result.stdout)
-                callback(quota)
+                if quota then
+                    cachedAgyCliQuota = quota
+                end
+                callback(quota or observationQuota)
             else
-                callback(nil)
+                callback(observationQuota)
             end
         end, 8000)
         if not spawned then
-            callback(nil)
+            callback(observationQuota)
         end
     else
-        callback(nil)
+        callback(cachedAgyCliQuota or observationQuota)
     end
 end
 
@@ -252,7 +317,9 @@ local function enrichAntigravity(report, callback)
 
     local agyEntry = nil
     for _, entry in ipairs(report.entries) do
-        if type(entry) == "table" and shared.baseProvider(entry.id) == "antigravity" then
+        -- A local agy observation belongs to the default login. Named-account
+        -- readings from ai-usagebar must never be overwritten with its quota.
+        if type(entry) == "table" and entry.id == "antigravity" then
             agyEntry = entry
             break
         end
@@ -263,19 +330,36 @@ local function enrichAntigravity(report, callback)
         return
     end
 
-    -- Check if Gemini 5h metric is present and at 0% (synthetic floating reset awaiting kickstart)
-    local needsEnrich = false
+    -- Newer ai-usagebar reads agy/statusline itself and preserves its dated
+    -- snapshot on failures. Only the Cloud Code fallback needs reconciliation.
+    local cloudFallback = false
+    for _, section in ipairs(type(agyEntry.sections) == "table" and agyEntry.sections or {}) do
+        if type(section) == "table" and section.type == "text"
+            and section.label == "Source" and section.value == "Google API" then
+            cloudFallback = true
+        end
+    end
+    if not cloudFallback then callback(report) return end
+
+    -- Check if Gemini is missing, or at 0% (synthetic floating reset awaiting kickstart)
+    local hasGemini5h = false
+    local gemini5hZero = false
     if type(agyEntry.metrics) == "table" then
         for _, m in ipairs(agyEntry.metrics) do
             if type(m) == "table" and type(m.label) == "string" and m.label:lower():find("gemini") then
                 local window = tonumber(m.window_secs) or 0
-                if window <= 43200 and (tonumber(m.percent) or 0) == 0 then
-                    needsEnrich = true
+                if window <= 43200 then
+                    hasGemini5h = true
+                    if (tonumber(m.percent) or 0) == 0 and m.started ~= true then
+                        gemini5hZero = true
+                    end
                     break
                 end
             end
         end
     end
+
+    local needsEnrich = (not hasGemini5h) or gemini5hZero
 
     if not needsEnrich then
         callback(report)
@@ -307,7 +391,7 @@ local function refresh()
     noctalia.state.set("refresh_queued", false)
     noctalia.state.set("polling", true)
 
-    local started = noctalia.runAsync(COMMAND, function(result)
+    local started = runQuery(function(result)
         local decoded = result ~= nil and not result.timedOut
             and noctalia.json.decode(result.stdout or "") or nil
         if type(decoded) == "table" and type(decoded.entries) == "table" then
@@ -330,7 +414,7 @@ local function refresh()
         end
 
         if pendingRefresh then refresh() end
-    end, 30000)
+    end)
 
     -- A refusal to spawn never calls back, and the poller would sit in flight
     -- forever.

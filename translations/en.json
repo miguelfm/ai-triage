@@ -149,7 +149,17 @@
         "opencode_go": "OpenCode Go",
         "openrouter": "OpenRouter",
         "supergrok": "SuperGrok",
-        "zai": "Z.AI"
+        "zai": "Z.AI",
+        "deepinfra": "DeepInfra",
+        "synthetic": "Synthetic",
+        "grokbot": "Grok Bot",
+        "ollama": "Ollama Cloud",
+        "orcarouter": "OrcaRouter",
+        "modelstudio": "Model Studio",
+        "lyceum": "Lyceum",
+        "devin": "Devin",
+        "muse_code": "Muse Code",
+        "cline": "Cline"
       }
     },
     "visualization": {
@@ -159,6 +169,10 @@
         "gauge": "Quota bar",
         "none": "Nothing"
       }
+    },
+    "query_timeout_seconds": {
+      "label": "Quota query timeout (seconds)",
+      "description": "Maximum time to wait for all providers. Increase for many accounts or slow Antigravity startup."
     }
   },
   "ui": {

@@ -49,6 +49,15 @@ local function wantedEntryId()
     return vendor .. "@" .. account
 end
 
+local function matchesAntigravity(entry)
+    return baseProvider(entry.id) == "antigravity"
+        and (account == "" or entry.id == "antigravity@" .. account)
+end
+
+local function isModelVendor()
+    return vendor == "gemini" or vendor == "claude-oss" or vendor == "claude_oss"
+end
+
 local function rank(entry)
     local metric = headline(entry)
     if metric == nil then return -1, -1 end
@@ -89,12 +98,18 @@ local function shown()
                 return { entry }, 0
             end
         end
-        if wanted == "gemini" or wanted == "claude-oss" or wanted == "claude_oss" then
+        if isModelVendor() then
             for _, entry in ipairs(all) do
-                if baseProvider(entry.id) == "antigravity" then
+                if matchesAntigravity(entry) then
                     if unavailable(entry) and not shared.readFailure(entry) then return {}, 0 end
                     return { entry }, 0
                 end
+            end
+        end
+        -- A statusline account can replace the default provider entry entirely.
+        if account == "" then
+            for _, entry in ipairs(all) do
+                if baseProvider(entry.id) == vendor then return { entry }, 0 end
             end
         end
         return {}, 0
@@ -168,8 +183,7 @@ local function pinnedDown()
     local wanted = wantedEntryId()
     for _, entry in ipairs(rawReportEntries()) do
         if entry.id == wanted and unavailable(entry) then return entry end
-        if (wanted == "gemini" or wanted == "claude-oss" or wanted == "claude_oss")
-            and baseProvider(entry.id) == "antigravity" and unavailable(entry) then
+        if isModelVendor() and matchesAntigravity(entry) and unavailable(entry) then
             return entry
         end
     end
@@ -298,7 +312,7 @@ local function chip(entry, flagged, isVert, typo)
     local balance = metric == nil and shared.balanceText(entry) or nil
     local tint = severityRole(metric, "on_surface")
     local percent = metric ~= nil and tonumber(metric.percent) or nil
-    local text = percent ~= nil and string.format("%d%%", percent) or (balance or "—")
+    local text = shared.metricText(metric) or balance or "—"
     local fill = severityRole(metric, "primary")
     -- The mark says which provider, never how full it is; severity rides on the
     -- reading and the gauge. A failed read is the one thing that colours it, and
@@ -464,11 +478,8 @@ local function formatDualMetric(m1, m2)
     m2 = type(m2) == "table" and m2 or nil
     if m1 == nil and m2 == nil then return "" end
 
-    local p1 = m1 and (m1.percent ~= nil and tonumber(m1.percent) or tostring(m1.value or ""))
-    local p2 = m2 and (m2.percent ~= nil and tonumber(m2.percent) or tostring(m2.value or ""))
-
-    local str1 = type(p1) == "number" and string.format("%d%%", p1) or tostring(p1 or ""):gsub(" of ", " / ")
-    local str2 = type(p2) == "number" and string.format("%d%%", p2) or (p2 ~= nil and tostring(p2):gsub(" of ", " / ") or nil)
+    local str1 = shared.metricText(m1)
+    local str2 = shared.metricText(m2)
 
     -- If one window is exhausted, its reset is the real unlock time. Showing
     -- the shorter session reset would promise availability while the weekly
@@ -478,8 +489,8 @@ local function formatDualMetric(m1, m2)
     local c2 = m2 ~= nil and fixedCountdown(m2) or ""
 
     local left = ""
-    local p1Num = tonumber(p1) or 0
-    local p2Num = tonumber(p2) or 0
+    local p1Num = tonumber(m1 and m1.percent) or 0
+    local p2Num = tonumber(m2 and m2.percent) or 0
     if blocking ~= nil and (p2Num >= 100 or p1Num < 100) then
         left = fixedCountdown(blocking)
     elseif c1 ~= "" and c2 ~= "" then
@@ -490,8 +501,8 @@ local function formatDualMetric(m1, m2)
         left = c2
     end
 
-    local val = str1
-    if str2 ~= nil and str2 ~= "" then
+    local val = str1 or str2 or ""
+    if str1 ~= nil and str2 ~= nil and str2 ~= "" then
         val = val .. " / " .. str2
     end
     return val, left

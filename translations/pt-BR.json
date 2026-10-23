@@ -131,8 +131,36 @@
         "deepseek": "DeepSeek",
         "gemini": "Gemini",
         "grok": "Grok",
-        "kilo": "Quilo"
+        "kilo": "Quilo",
+        "deepinfra": "DeepInfra",
+        "synthetic": "Synthetic",
+        "grokbot": "Grok Bot",
+        "ollama": "Ollama Cloud",
+        "orcarouter": "OrcaRouter",
+        "modelstudio": "Model Studio",
+        "lyceum": "Lyceum",
+        "devin": "Devin",
+        "muse_code": "Muse Code",
+        "cline": "Cline",
+        "antigravity": "Antigravity",
+        "commandcode": "Command Code",
+        "copilot": "GitHub Copilot",
+        "kimi": "Kimi",
+        "kiro": "Kiro",
+        "minimax": "MiniMax",
+        "moonshot": "Moonshot",
+        "nous": "Nous Research",
+        "novita": "Novita",
+        "openai": "Codex",
+        "opencode_go": "OpenCode Go",
+        "openrouter": "OpenRouter",
+        "supergrok": "SuperGrok",
+        "zai": "Z.AI"
       }
+    },
+    "query_timeout_seconds": {
+      "label": "Tempo limite da consulta de cotas (segundos)",
+      "description": "Tempo máximo de espera por todos os provedores. Aumente para muitas contas ou inicialização lenta do Antigravity."
     }
   },
   "ui": {
