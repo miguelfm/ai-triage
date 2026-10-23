@@ -363,4 +363,33 @@ assert(has(filteredPanelLabels, "Gemini"), "Gemini must remain visible in panel 
 assert(not has(filteredPanelLabels, "Claude & GPT OSS"), "Claude & GPT OSS must NOT be rendered anywhere in panel when hidden")
 assert(has(filteredPanelLabels, "Claude"), "Anthropic Claude Pro must NOT be hidden in panel")
 
+-- Renewal explanations live on hover, without adding panels or visible prose.
+local resetEntry = creditEntry("openai", "Codex", 50, 2.5, {})
+local weekly = resetEntry.metrics[2]
+weekly.reset_observation = { at = os.time(), source = "ai-usagebar", event = {
+    kind = "early_renewal", at = os.time(), previous_reset_at = os.time() + 3600,
+} }
+local resetTree = loadPanel(resetEntry)
+local resetLabels = labels(resetTree)
+assert(not mentions(resetLabels, "Early renewal"), "renewal explanations should not add visible clutter")
+local tips = {}
+for _, row in ipairs(collect(resetTree, "row")) do tips[#tips + 1] = row.props.tooltip or "" end
+assert(mentions(tips, "Early renewal detected") and mentions(tips, "Next weekly reset announced"),
+    "both the clock and schedule must explain provider dates on hover")
+
+weekly.reset_at = isoIn(-60)
+local pendingLabels = labels(loadPanel(resetEntry))
+assert(has(pendingLabels, "Check") and has(pendingLabels, "Pending confirmation"),
+    "expired schedules need a compact confirmation state")
+assert(not has(pendingLabels, "0d 00h") and not has(pendingLabels, "7d 00h"),
+    "an expired weekly deadline must not turn into a new countdown")
+assert(not has(pendingLabels, "Weekly Reset Imminent!"), "unconfirmed renewals must not generate sprint alerts")
+weekly.reset_at = nil
+assert(has(labels(loadPanel(resetEntry)), "Pending confirmation"), "missing dates need confirmation too")
+weekly.reset_at = isoIn(2.5 * 3600)
+weekly.reset_observation.at = os.time() - 1800
+local staleLabels = labels(loadPanel(resetEntry))
+assert(has(staleLabels, "~0d 02h"), "old countdowns need a discreet approximation marker")
+assert(not has(staleLabels, "Weekly Reset Imminent!"), "old readings must not create urgency")
+
 io.write("ok: panel rendering, typography, and rounded session estimates with precise calibration\n")

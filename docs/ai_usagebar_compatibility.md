@@ -1,7 +1,8 @@
 # ai-usagebar compatibility audit
 
 AI Triage **1.6.3** introduced the compatibility corrections documented below.
-Version **1.7.0** adds the failure diagnostics described in the next section.
+Version **1.7.0** added failure diagnostics; **1.7.1** adds the weekly renewal
+observations and confirmation behavior described below.
 
 Checked on 2026-10-23 against the latest published release,
 [v1.43.0](https://github.com/akitaonrails/ai-usagebar/releases/tag/v1.43.0),
@@ -28,6 +29,45 @@ and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob
 | Reset inventory | Structured `reset_credits` is authoritative, including `available: 0`. Count-only inventories remain visible without invented expiration dates; absent weekly quota or unknown expiration produces no automatic claim recommendation. Legacy text-only inventories remain supported. |
 | Failures and stale data | HTTP diagnostics remain visible in pinned tooltips; stale HTTP-error readings are not treated as live quota. Successful reads replace failures. Existing redaction tests continue to pass. |
 | Antigravity reconciliation | The plugin only enriches default-account Cloud Code fallback readings (`Source: Google API`). It preserves newer upstream `agy`/statusline readings instead of querying the default account again. |
+| Weekly renewal observations | Provider dates remain authoritative. A bounded local history explains early renewals and date-only changes without inventing another renewal calendar. Old or expired schedules cannot trigger weekly sprint or reset-credit recommendations. |
+
+## Weekly renewal observations in 1.7.1
+
+The poller stores its last valid observation per provider/account, metric label
+and window plus the 32 latest changes in `weekly-resets.json` in the plugin data
+directory. Baselines expire after 30 days. Credentials and full reports are not
+stored in this history; failed, cached and out-of-order reads cannot replace a
+valid baseline. A missing or corrupt history file starts a new history without
+interrupting quota reads.
+
+A usage drop of at least 5 percentage points and a later reset timestamp (beyond
+60 seconds of drift) indicates a renewal. A renewal observed before the previous
+deadline is recorded as early. Date-only shifts of at least one hour and changes
+across different sources remain schedule changes, without claiming a renewal or
+manual credit redemption. A smaller credit inventory is recorded as supporting
+evidence only. The plugin never replaces the provider's `reset_at`.
+
+The existing weekly clock and schedule tooltips show source, reading time and
+changes detected within the last 24 hours. There are no new cards or settings.
+Readings older than the greater of 15 minutes and twice the polling interval
+show `~` in the schedule. Missing or expired dates show `Check` / `Pending
+confirmation`, rather than a fabricated seven-day countdown. Old/unconfirmed
+schedules do not generate weekly sprint or reset-credit advice; reported quota
+exhaustion still blocks routing.
+
+Polling is brought forward to the announced deadline. Expired dates are checked
+again at the smaller of one minute and the configured interval, including after
+failed queries. History starts with the first valid observation and cannot
+reconstruct older renewals or predict an unannounced provider reset.
+
+`tests/weekly_resets_test.lua` replays the October 22–23 Codex transition and
+covers scheduled renewals, timestamp drift, source changes, credit inventory
+evidence, old/failed reads, account/model isolation and bounded history.
+`tests/refresh_test.lua` verifies deadline polling, retry intervals, persistence,
+restart recovery and corrupt-file handling. `tests/panel_test.lua` checks that
+renewal explanations stay in tooltips and unconfirmed schedules do not create
+false countdowns or urgent alerts. On the installed shell, version 1.7.1 was
+loaded and its history file populated with the configured provider baselines.
 
 ## Failure diagnostics in 1.7.0
 
@@ -78,8 +118,8 @@ noctalia plugins lint .
 noctalia config validate
 ```
 
-The nine Lua suites pass, including 22 diagnostic classification cases, visible
-recovery guidance, clipboard actions, automatic-bar failures and recovery after
+The ten Lua suites pass, including weekly renewal observations, 22 diagnostic
+classification cases, visible recovery guidance, clipboard actions, automatic-bar failures and recovery after
 a successful read. The Python check compares the installed provider
 catalog with the recorded 1.43.0 catalog and the manifest/translations. It also
 executes the poller's actual shell command with isolated fake CLI processes to

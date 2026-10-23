@@ -13,6 +13,14 @@ local notifications = {}
 local decodedReport = { entries = {} }
 local now = 5000
 local intervals = {}
+local savedHistory, corruptHistory = nil, false
+local wallTime = os.time()
+local function clone(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for k, v in pairs(value) do copy[k] = clone(v) end
+    return copy
+end
 
 local state = {
     get = function(key) return values[key] end,
@@ -33,7 +41,22 @@ local noctalia = {
         callbacks[#callbacks + 1] = callback
         return true
     end,
-    json = { decode = function() return decodedReport end },
+    pluginDataDir = function() return "/test" end,
+    readFile = function() return savedHistory and "history" or "" end,
+    writeFile = function(path, value)
+        assert(path == "/test/weekly-resets.json" and value == "history")
+        return true
+    end,
+    json = {
+        decode = function(raw)
+            if raw == "history" then
+                if corruptHistory then error("invalid JSON") end
+                return clone(savedHistory)
+            end
+            return decodedReport
+        end,
+        encode = function(value) savedHistory = clone(value) return "history" end,
+    },
     notify = function(title, message)
         notifications[#notifications + 1] = { title = title, message = message }
     end,
@@ -42,6 +65,7 @@ local noctalia = {
 }
 
 local env = setmetatable({ noctalia = noctalia }, { __index = _G })
+env.os = setmetatable({ time = function(t) return t and os.time(t) or wallTime end }, { __index = os })
 env.require = function(path)
     assert(path == "./shared.luau")
     return assert(load(read("shared.luau"), "shared", "t", env))()
@@ -123,6 +147,46 @@ callbacks[8]({ exitCode = 0, stdout = "{}", stderr = "" })
 assert(values.report.entries[1].metrics[1].percent == 35
     and values.report.entries[1].stale ~= true,
     "the next healthy Antigravity reading should replace the cached one")
+
+local function quota(reset, percent)
+    return { entries = { { id = "openai", status = "ready", metrics = {
+        { label = "Weekly", percent = percent, window_secs = 604800,
+            reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", reset) },
+    } } } }
+end
+local function complete(report, result)
+    now = now + 2000
+    decodedReport = report
+    env.onIpc("refresh")
+    callbacks[#callbacks](result or { exitCode = 0, stdout = "{}" })
+end
+local deadline = wallTime + 120
+complete(quota(deadline, 50))
+assert(intervals[#intervals] == 120000, "check at the weekly deadline rather than waiting five minutes")
+assert(savedHistory.samples.openai["Weekly/604800"].percent == 50, "persist the weekly baseline")
+wallTime = deadline
+complete(nil, { timedOut = true })
+assert(intervals[#intervals] == 60000, "failed deadline reads retry without a tight loop")
+complete(quota(deadline, 50))
+assert(intervals[#intervals] == 60000, "an unconfirmed expired date retries once a minute")
+wallTime = wallTime + 1
+complete(quota(wallTime + 604800, 0))
+assert(savedHistory.events[#savedHistory.events].change.kind == "renewal")
+assert(intervals[#intervals] == 300000, "confirmed new cycles restore normal polling")
+
+-- Reload the service with only its disk history; subscribers need no old state.
+values.report = nil
+now = now + 2000
+assert(load(read("service.luau"), "service", "t", env))()
+callbacks[#callbacks]({ exitCode = 0, stdout = "{}" })
+assert(values.report.entries[1].metrics[1].reset_observation.event.kind == "renewal",
+    "a service restart must recover its last renewal explanation")
+corruptHistory = true
+now = now + 2000
+assert(load(read("service.luau"), "service", "t", env))()
+callbacks[#callbacks]({ exitCode = 0, stdout = "{}" })
+assert(values.error.code == "" and values.report ~= nil, "corrupt history must not break polling")
+corruptHistory = false
 
 local sharedEnv = setmetatable({ noctalia = noctalia }, { __index = _G })
 local shared = assert(load(read("shared.luau"), "shared", "t", sharedEnv))()

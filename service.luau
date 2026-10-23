@@ -201,6 +201,39 @@ end
 local inFlight = false
 local pendingRefresh = false
 
+local weeklyHistory = {}
+local weeklyHistoryPath = nil
+pcall(function()
+    weeklyHistoryPath = noctalia.pluginDataDir() .. "/weekly-resets.json"
+    local saved = noctalia.json.decode(noctalia.readFile(weeklyHistoryPath) or "")
+    if type(saved) == "table" and saved.version == 1 then weeklyHistory = saved end
+end)
+
+local function trackWeeklyResets(report)
+    weeklyHistory = shared.trackWeeklyResets(report, weeklyHistory)
+    if weeklyHistoryPath then
+        -- A corrupt/unwritable history must never prevent quota updates.
+        pcall(function() noctalia.writeFile(weeklyHistoryPath, noctalia.json.encode(weeklyHistory)) end)
+    end
+end
+
+local function scheduleNextRefresh(report)
+    local delay = intervalMs()
+    local now = os.time()
+    for _, entry in ipairs(type(report) == "table" and type(report.entries) == "table" and report.entries or {}) do
+        for _, metric in ipairs(type(entry) == "table" and type(entry.metrics) == "table" and entry.metrics or {}) do
+            local _, weekly = shared.dualMetrics({ metric })
+            local at = weekly and shared.parseIso(weekly.reset_at)
+            if at then
+                -- Check at the announced deadline. If it stays expired (including
+                -- failed reads), retry at most once a minute, without inventing 7d.
+                delay = math.min(delay, at > now and math.max(1000, (at - now) * 1000) or 60000)
+            end
+        end
+    end
+    noctalia.setUpdateInterval(delay)
+end
+
 -- A floor between spawns. Opening the panel asks for a read, and a panel opens as
 -- fast as a pointer can click.
 local MIN_GAP_MS = 2000
@@ -400,10 +433,12 @@ local function refresh()
             local safeReport = scrub(decoded)
             keepAntigravityReading(safeReport)
             enrichAntigravity(safeReport, function(finalReport)
+                trackWeeklyResets(finalReport)
                 inFlight = false
                 noctalia.state.set("polling", false)
                 noctalia.state.set("report", finalReport)
                 noctalia.state.set("error", failure(""))
+                scheduleNextRefresh(finalReport)
                 if pendingRefresh then refresh() end
             end)
             return
@@ -411,6 +446,7 @@ local function refresh()
             inFlight = false
             noctalia.state.set("polling", false)
             noctalia.state.set("error", classify(result))
+            scheduleNextRefresh(noctalia.state.get("report"))
         end
 
         if pendingRefresh then refresh() end
@@ -424,6 +460,7 @@ local function refresh()
         noctalia.state.set("refresh_queued", false)
         noctalia.state.set("polling", false)
         noctalia.state.set("error", failure("spawn_failed"))
+        scheduleNextRefresh(noctalia.state.get("report"))
     end
 end
 

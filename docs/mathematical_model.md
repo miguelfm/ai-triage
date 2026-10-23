@@ -283,6 +283,34 @@ Because the upstream API timestamp ($R_{\text{API}}$) reflects the genuine new 7
 - **Sprint Urgency Calibration**: Artificially anchoring to a superseded pre-reset date would incorrectly calculate a dangerously short runway, triggering false sprint urgency ($U_{\text{reset\_weekly}}$) and leading the user to burn through quota prematurely days before the real renewal arrives.
 - **Reset Staggering Coupling**: The Reset Staggering Engine (Section 4) evaluates remaining banked credits and expirations against the authentic post-advancement weekly schedule, guaranteeing optimal token arbitrage without distorted deadlines.
 
+### 6.3 Observations and Unconfirmed Schedules (1.7.1)
+
+The poller persists one last valid observation per provider/account, metric label
+and window, plus 32 recent changes in `weekly-resets.json` under Noctalia's plugin
+data directory. Baselines expire after 30 days. This history never changes
+`reset_at` and does not infer renewal dates from credit expirations.
+
+A usage drop of at least 5 percentage points combined with a later reset date
+(more than 60 seconds of drift) indicates a renewal. If observed before the old
+deadline, it is recorded as early. A date shift of at least one hour without that
+usage evidence, or across different sources, is only a schedule change. A lower
+credit count is recorded as supporting evidence, without asserting a manual
+claim. Cached, failed and out-of-order readings cannot replace valid baselines.
+
+The existing weekly clock and schedule row expose source, reading time and recent
+changes in tooltips; change explanations disappear after 24 hours. An expired or
+missing date shows `Check` / `Pending confirmation`, never a fabricated new week.
+Readings older than the greater of 15 minutes or twice the configured polling
+interval show `~` in the schedule. Unconfirmed/old schedules do not generate
+weekly sprint urgency or reset-credit advice; reported exhaustion still blocks
+routing until a fresh reading confirms available quota.
+
+Polling is brought forward to the announced deadline. An expired deadline is
+retried at the smaller of one minute and the configured interval, including after
+query failures. Successful confirmation restores normal polling. Broken history
+files do not interrupt quota reads. History starts with the first valid reading;
+it cannot retrospectively identify or predict an unannounced provider reset.
+
 ---
 
 ### 7. Antigravity Local Session Telemetry Reconciliation

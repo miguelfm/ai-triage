@@ -1075,6 +1075,10 @@ local function adviseResetCredit(stats, gearing, nowTime, config)
         return { status = "hold", summary = "Keep the reset: weekly quota not reported",
             nowGain = 0, cycleGain = 0, laterGain = 0, lastChance = false }
     end
+    if stats.weeklyScheduleKnown == false then
+        return { status = "hold", summary = "Keep the reset: refresh to confirm the weekly schedule",
+            nowGain = 0, cycleGain = 0, laterGain = 0, lastChance = false }
+    end
     if stats.earliestExpiry == nil then
         return { status = "hold", summary = "Keep the reset: expiration not reported",
             nowGain = 0, cycleGain = 0, laterGain = 0, lastChance = false }
@@ -1241,6 +1245,7 @@ function M.analyzeResetCredits(entries, nowTime, scheduleConfig)
                 earliestRemainingSecs = earliest and earliest.remainingSecs,
                 weeklyPercent = wPct,
                 weeklyReported = wMetric ~= nil,
+                weeklyScheduleKnown = wMetric ~= nil and M.weeklyResetStatus(wMetric, entry, nowTime) == "announced",
                 weeklyResetAt = wAt,
                 weeklyWindowSecs = wWindow,
                 weeklyRemainingSecs = wRemainingSecs,
@@ -1820,6 +1825,126 @@ function M.reconcileReportCycles(report, _nowTime)
     return report
 end
 
+-- Keep observations, never a second calendar. One baseline per account/window
+-- and 32 recent changes are enough to explain renewals across service restarts.
+function M.trackWeeklyResets(report, history, nowTime)
+    local now = nowTime or os.time()
+    history = type(history) == "table" and history.version == 1 and history or {}
+    history.version = 1
+    history.samples = type(history.samples) == "table" and history.samples or {}
+    history.events = type(history.events) == "table" and history.events or {}
+    for _, entry in ipairs(type(report) == "table" and type(report.entries) == "table" and report.entries or {}) do
+        if type(entry) == "table" and type(entry.id) == "string" then
+            local samples = history.samples[entry.id]
+            samples = type(samples) == "table" and samples or {}
+            local source = "ai-usagebar"
+            for _, section in ipairs(type(entry.sections) == "table" and entry.sections or {}) do
+                if type(section) == "table" and section.label == "Source" then
+                    source = tostring(section.value or source)
+                end
+            end
+            for _, metric in ipairs(type(entry.metrics) == "table" and entry.metrics or {}) do
+                local _, weekly = M.dualMetrics({ metric })
+                if weekly then
+                    local key = tostring(metric.label or "Weekly") .. "/" .. tostring(metric.window_secs or 604800)
+                    local previous = samples[key]
+                    previous = type(previous) == "table" and previous or nil
+                    local at = M.parseIso(entry.fetched_at) or now
+                    local reset = M.parseIso(metric.reset_at)
+                    local percent = tonumber(metric.percent)
+                    local credits = type(entry.reset_credits) == "table" and tonumber(entry.reset_credits.available) or nil
+                    local fresh = not M.unavailable(entry) and entry.stale ~= true and at <= now + 60
+                        and (not previous or at > (tonumber(previous.at) or 0))
+                    if fresh and reset and percent then
+                        local event = previous and previous.event
+                        local oldReset = previous and tonumber(previous.reset_at)
+                        if oldReset and math.abs(reset - oldReset) > 60 then
+                            local kind = nil
+                            if previous.source == source and reset > oldReset
+                                and (tonumber(previous.percent) or 0) - percent >= 5 then
+                                kind = at < oldReset - 60 and "early_renewal" or "renewal"
+                            elseif math.abs(reset - oldReset) >= 3600 then
+                                kind = "schedule_changed"
+                            end
+                            if kind then
+                                event = { kind = kind, at = at, previous_reset_at = oldReset, reset_at = reset,
+                                    previous_percent = previous.percent, percent = percent,
+                                    fewer_credits = credits ~= nil and tonumber(previous.credits) ~= nil
+                                        and credits < tonumber(previous.credits) or false }
+                                history.events[#history.events + 1] = { provider = entry.id, window = key, change = event }
+                            end
+                        end
+                        previous = { at = at, reset_at = reset, percent = percent, credits = credits,
+                            source = source, event = event }
+                        samples[key] = previous
+                        history.samples[entry.id] = samples
+                    end
+                    -- A cached/out-of-order read must not acquire a fresh timestamp
+                    -- or attach an event belonging to a different calendar.
+                    metric.reset_observation = {
+                        at = M.parseIso(entry.fetched_at) or (fresh and now or previous and previous.at),
+                        source = source,
+                        event = previous and reset == previous.reset_at and previous.event or nil,
+                    }
+                end
+            end
+        end
+    end
+    while #history.events > 32 do table.remove(history.events, 1) end
+    for id, samples in pairs(history.samples) do
+        if type(samples) ~= "table" then
+            history.samples[id] = nil
+        else
+            for key, sample in pairs(samples) do
+                if type(sample) ~= "table" or now - (tonumber(sample.at) or 0) > 30 * 86400 then samples[key] = nil end
+            end
+            if next(samples) == nil then history.samples[id] = nil end
+        end
+    end
+    return history
+end
+
+function M.weeklyResetStatus(metric, entry, nowTime)
+    local now = nowTime or os.time()
+    local at = M.parseIso(metric and metric.reset_at)
+    if not at or at <= now then return "pending" end
+    local observation = metric and metric.reset_observation
+    local fetched = type(observation) == "table" and tonumber(observation.at) or M.parseIso(entry and entry.fetched_at)
+    local minutes = type(noctalia) == "table" and type(noctalia.getConfig) == "function"
+        and tonumber(noctalia.getConfig("refresh_minutes")) or 5
+    if (entry and entry.stale == true) or (fetched and now - fetched > math.max(900, (minutes or 5) * 120)) then
+        return "stale"
+    end
+    return "announced"
+end
+
+function M.weeklyResetTooltip(metric, entry, nowTime)
+    local status = M.weeklyResetStatus(metric, entry, nowTime)
+    local lines = { "Next weekly reset announced by the provider." }
+    if status == "pending" then
+        lines[1] = "Weekly renewal pending confirmation. Refresh to check the provider."
+    elseif status == "stale" then
+        lines[#lines + 1] = "Reading is old; refresh to confirm the schedule."
+    end
+    local observation = metric and metric.reset_observation
+    local fetched = type(observation) == "table" and tonumber(observation.at) or M.parseIso(entry and entry.fetched_at)
+    local function date(at) return os.date("%Y-%m-%d %H:%M %Z", at) end
+    lines[#lines + 1] = fetched and ("Last quota reading: " .. date(fetched)) or "Last quota reading: unavailable."
+    if type(observation) == "table" then
+        lines[#lines + 1] = "Source: " .. tostring(observation.source or "ai-usagebar")
+        local event = observation.event
+        -- Keep the full history on disk; only explain a recent change on hover.
+        if type(event) == "table" and tonumber(event.at) and (nowTime or os.time()) - event.at <= 86400 then
+            local descriptions = { early_renewal = "Early renewal detected", renewal = "Renewal detected",
+                schedule_changed = "Schedule changed; renewal not confirmed" }
+            lines[#lines + 1] = (descriptions[event.kind] or "Schedule changed") .. " at " .. date(event.at) .. "."
+            if tonumber(event.previous_reset_at) then lines[#lines + 1] = "Previously announced: " .. date(event.previous_reset_at) end
+            if event.fewer_credits then lines[#lines + 1] = "Fewer reset credits available in this reading." end
+        end
+    end
+    return table.concat(lines, "\n")
+end
+
 -- Mathematical triage model for dynamic multi-provider resource optimization:
 -- Goal: Maximize useful token throughput over time without premature exhaustion,
 -- ensuring all provider quotas finish near 0% by the end of their weekly (7d) or session (5h) window.
@@ -1872,7 +1997,7 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
     local dutyCycle = 0.0
     local H_w = 0.0
 
-    if wMetric ~= nil then
+    if wMetric ~= nil and M.weeklyResetStatus(wMetric, item.entry, nowTime) == "announced" then
         local wAt = wMetric and M.parseIso(wMetric.reset_at)
         H_w = M.calculateActiveHours(nowTime, wAt, scheduleConfig, isUserActiveNow)
         if H_w < 0.5 then H_w = 0.5 end
