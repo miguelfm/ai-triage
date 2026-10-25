@@ -203,17 +203,79 @@ local pendingRefresh = false
 
 local weeklyHistory = {}
 local weeklyHistoryPath = nil
+local weeklyDataDir = nil
 pcall(function()
-    weeklyHistoryPath = noctalia.pluginDataDir() .. "/weekly-resets.json"
+    weeklyDataDir = noctalia.pluginDataDir()
+    weeklyHistoryPath = weeklyDataDir .. "/weekly-resets.json"
     local saved = noctalia.json.decode(noctalia.readFile(weeklyHistoryPath) or "")
     if type(saved) == "table" and saved.version == 1 then weeklyHistory = saved end
 end)
 
+local function historyLog(message)
+    if type(noctalia.log) == "function" then pcall(noctalia.log, "AI Triage: " .. message) end
+end
+
+local function writeHistoryFile(path, encoded)
+    assert(type(encoded) == "string", "JSON encoding failed")
+    local written, err = noctalia.writeFile(path .. ".tmp", encoded)
+    assert(written, err or "write refused")
+    local renamed, renameErr = noctalia.renameFile(path .. ".tmp", path)
+    assert(renamed, renameErr or "rename refused")
+end
+
+-- The small working history is not the audit log. Archive each change in its
+-- own JSON file, with a persistent outbox so failed writes are retried. Import
+-- the existing v1 events once, preserving missing legacy fields as unknown.
+weeklyHistory.version = 1
+weeklyHistory.pending_events = type(weeklyHistory.pending_events) == "table" and weeklyHistory.pending_events or {}
+if not weeklyHistory.archive_initialized then
+    for _, record in ipairs(type(weeklyHistory.events) == "table" and weeklyHistory.events or {}) do
+        weeklyHistory.pending_events[#weeklyHistory.pending_events + 1] = record
+    end
+    weeklyHistory.archive_initialized = true
+end
+
+local function archiveWeeklyEvents()
+    local pending = {}
+    for _, record in ipairs(weeklyHistory.pending_events or {}) do
+        local ok, result = pcall(function()
+            assert(weeklyDataDir, "plugin data directory unavailable")
+            assert(type(record) == "table" and type(record.change) == "table"
+                and tonumber(record.change.at), "invalid event in archive outbox")
+            if not record.archive_id then
+                weeklyHistory.archive_sequence = (tonumber(weeklyHistory.archive_sequence) or 0) + 1
+                record.archive_id = os.date("!%Y%m%dT%H%M%SZ", record.change.at)
+                    .. "-" .. tostring(weeklyHistory.archive_sequence)
+            end
+            local change = record.change
+            local payload = { version = 1, provider = record.provider, window = record.window,
+                change = change, archive_id = record.archive_id }
+            local encoded = noctalia.json.encode(payload)
+            writeHistoryFile(weeklyDataDir .. "/weekly-reset-event-" .. record.archive_id .. ".json", encoded)
+            return encoded
+        end)
+        if ok then
+            historyLog("weekly reset event " .. result)
+        else
+            pending[#pending + 1] = record
+            historyLog("could not archive weekly reset event; will retry: " .. tostring(result))
+        end
+    end
+    weeklyHistory.pending_events = pending
+end
+
 local function trackWeeklyResets(report)
-    weeklyHistory = shared.trackWeeklyResets(report, weeklyHistory)
+    local changes = {}
+    weeklyHistory = shared.trackWeeklyResets(report, weeklyHistory, nil, changes)
+    for _, record in ipairs(changes) do
+        weeklyHistory.pending_events[#weeklyHistory.pending_events + 1] = record
+    end
+    archiveWeeklyEvents()
     if weeklyHistoryPath then
-        -- A corrupt/unwritable history must never prevent quota updates.
-        pcall(function() noctalia.writeFile(weeklyHistoryPath, noctalia.json.encode(weeklyHistory)) end)
+        local ok, result = pcall(function()
+            writeHistoryFile(weeklyHistoryPath, noctalia.json.encode(weeklyHistory))
+        end)
+        if not ok or result == false then historyLog("could not persist weekly reset history: " .. tostring(result)) end
     end
 end
 

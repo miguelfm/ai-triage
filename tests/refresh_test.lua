@@ -14,6 +14,9 @@ local decodedReport = { entries = {} }
 local now = 5000
 local intervals = {}
 local savedHistory, corruptHistory = nil, false
+local encodedValues, files, logs = {}, {}, {}
+local archiveWrites = 0
+local failArchive, failRename = false, false
 local wallTime = os.time()
 local function clone(value)
     if type(value) ~= "table" then return value end
@@ -44,9 +47,20 @@ local noctalia = {
     pluginDataDir = function() return "/test" end,
     readFile = function() return savedHistory and "history" or "" end,
     writeFile = function(path, value)
-        assert(path == "/test/weekly-resets.json" and value == "history")
+        if path:find("weekly-reset-event-", 1, true) then
+            if failArchive then return nil, "disk full" end
+            archiveWrites = archiveWrites + 1
+        end
+        files[path] = value
         return true
     end,
+    renameFile = function(from, to)
+        if failRename and to:find("weekly-reset-event-", 1, true) then return false, "rename failed" end
+        files[to], files[from] = files[from], nil
+        if to == "/test/weekly-resets.json" then savedHistory = clone(encodedValues[files[to]]) end
+        return true
+    end,
+    log = function(message) logs[#logs + 1] = message end,
     json = {
         decode = function(raw)
             if raw == "history" then
@@ -55,7 +69,12 @@ local noctalia = {
             end
             return decodedReport
         end,
-        encode = function(value) savedHistory = clone(value) return "history" end,
+        encode = function(value)
+            local key = "encoded-" .. tostring(#encodedValues + 1)
+            encodedValues[#encodedValues + 1] = key
+            encodedValues[key] = clone(value)
+            return key
+        end,
     },
     notify = function(title, message)
         notifications[#notifications + 1] = { title = title, message = message }
@@ -172,6 +191,16 @@ assert(intervals[#intervals] == 60000, "an unconfirmed expired date retries once
 wallTime = wallTime + 1
 complete(quota(wallTime + 604800, 0))
 assert(savedHistory.events[#savedHistory.events].change.kind == "renewal")
+assert(archiveWrites == 1 and #savedHistory.pending_events == 0, "archive the renewal once and clear the outbox")
+local archivedRecord
+for path, encoded in pairs(files) do
+    if path:match("weekly%-reset%-event%-.+%.json$") then archivedRecord = encodedValues[encoded] end
+end
+assert(archivedRecord.change.previous_percent == 50 and archivedRecord.change.percent == 0
+    and archivedRecord.change.previous_at and archivedRecord.change.detected_at == wallTime
+    and archivedRecord.change.previous_source == "ai-usagebar"
+    and archivedRecord.change.previous_reset_at == deadline,
+    "the archive must preserve both observations and detection time")
 assert(intervals[#intervals] == 300000, "confirmed new cycles restore normal polling")
 
 -- Reload the service with only its disk history; subscribers need no old state.
@@ -181,6 +210,55 @@ assert(load(read("service.luau"), "service", "t", env))()
 callbacks[#callbacks]({ exitCode = 0, stdout = "{}" })
 assert(values.report.entries[1].metrics[1].reset_observation.event.kind == "renewal",
     "a service restart must recover its last renewal explanation")
+assert(archiveWrites == 1, "restarts and cached reads must not archive the same event again")
+
+-- Failed writes stay in a durable outbox, including across service restarts.
+failArchive = true
+wallTime = wallTime + 300
+complete(quota(wallTime + 604800 + 7200, 0))
+assert(values.error.code == "" and #savedHistory.pending_events == 1,
+    "archive failure must preserve the event for retry without blocking quota refresh")
+assert(logs[#logs]:find("will retry", 1, true), "archive failure must be visible in host logs")
+local pendingId = savedHistory.pending_events[1].archive_id
+now = now + 2000
+assert(load(read("service.luau"), "service", "t", env))()
+failArchive, failRename = false, true
+callbacks[#callbacks]({ exitCode = 0, stdout = "{}" })
+assert(#savedHistory.pending_events == 1 and savedHistory.pending_events[1].archive_id == pendingId,
+    "failed finalization must retain the same archive identity")
+failRename = false
+complete(decodedReport)
+assert(#savedHistory.pending_events == 0, "a successful retry must empty the outbox")
+local archivedCount = archiveWrites
+complete(decodedReport)
+assert(archiveWrites == archivedCount, "repeated polling must not duplicate archived events")
+
+-- Existing v1 history is archived once on upgrade, with no invented old fields.
+savedHistory.archive_initialized = nil
+savedHistory.pending_events = nil
+now = now + 2000
+assert(load(read("service.luau"), "service", "t", env))()
+callbacks[#callbacks]({ exitCode = 0, stdout = "{}" })
+assert(savedHistory.archive_initialized and #savedHistory.pending_events == 0
+    and archiveWrites == archivedCount + #savedHistory.events, "backfill the saved v1 events once")
+
+-- Trimming the working history must never delete the permanent event archive.
+local function archiveFileCount()
+    local count = 0
+    for path in pairs(files) do
+        if path:match("weekly%-reset%-event%-.+%.json$") then count = count + 1 end
+    end
+    return count
+end
+local fileCount = archiveFileCount()
+local movingReset = wallTime + 604800 + 7200
+for i = 1, 35 do
+    wallTime = wallTime + 300
+    movingReset = movingReset + 7200
+    complete(quota(movingReset, 0))
+end
+assert(#savedHistory.events == 32 and archiveFileCount() == fileCount + 35,
+    "all events must survive even after the 32-entry working history is trimmed")
 corruptHistory = true
 now = now + 2000
 assert(load(read("service.luau"), "service", "t", env))()

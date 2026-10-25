@@ -1155,6 +1155,7 @@ local function renderColumns(candidates, typo)
                 free = wFree,
                 status = resetStatus,
                 tooltip = shared.weeklyResetTooltip(wM, item.entry),
+                change = shared.weeklyResetChange(wM),
             }
         end
     end
@@ -1338,6 +1339,37 @@ local function renderColumns(candidates, typo)
             })
             table.insert(creditCards, 1, alertCard)
         end
+    end
+
+    -- Keep this first-day informational notice below the daily routing advice.
+    -- It describes a past observation, independently of stale quota/sprint advice.
+    local changeRows = {}
+    for _, ws in ipairs(weeklySchedules) do
+        local event = ws.change
+        if event then
+            local function date(at)
+                return tonumber(at) and os.date("%d %b %H:%M %Z", at) or "Unknown"
+            end
+            changeRows[#changeRows + 1] = ui.column({ gap = 2, tooltip = ws.tooltip }, {
+                ui.label({ text = ws.name .. (event.kind == "early_renewal"
+                    and " · Early renewal observed" or " · Renewal not confirmed"),
+                    fontSize = fs(11), fontWeight = "semibold", color = "on_surface" }),
+                ui.label({ text = "Before: " .. date(event.previous_reset_at),
+                    fontSize = fs(11), color = "on_surface_variant" }),
+                ui.label({ text = "Now announced: " .. date(ws.resetAt or event.reset_at),
+                    fontSize = fs(11), color = "on_surface_variant" }),
+            })
+        end
+    end
+    if #changeRows > 0 then
+        creditCards[#creditCards + 1] = ui.column(cardStyle(6, "primary/0.08", "primary/0.25", 8), {
+            ui.row({ gap = 6, align = "center" }, {
+                ui.glyph({ name = "calendar-clock", size = gs(14), color = "primary" }),
+                ui.label({ text = "Weekly reset changed", fontSize = fs(13),
+                    fontWeight = "bold", color = "primary" }),
+            }),
+            ui.column({ gap = 6, align = "stretch" }, changeRows),
+        })
     end
 
     if #creditCards == 0 then

@@ -3,6 +3,7 @@
 AI Triage **1.6.3** introduced the compatibility corrections documented below.
 Version **1.7.0** added failure diagnostics; **1.7.1** adds the weekly renewal
 observations and confirmation behavior described below.
+Version **1.7.2** adds a visible 24-hour notice and permanent event archives.
 
 Checked on 2026-10-23 against the latest published release,
 [v1.43.0](https://github.com/akitaonrails/ai-usagebar/releases/tag/v1.43.0),
@@ -31,7 +32,7 @@ and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob
 | Antigravity reconciliation | The plugin only enriches default-account Cloud Code fallback readings (`Source: Google API`). It preserves newer upstream `agy`/statusline readings instead of querying the default account again. |
 | Weekly renewal observations | Provider dates remain authoritative. A bounded local history explains early renewals and date-only changes without inventing another renewal calendar. Old or expired schedules cannot trigger weekly sprint or reset-credit recommendations. |
 
-## Weekly renewal observations in 1.7.1
+## Weekly renewal observations and change notices in 1.7.2
 
 The poller stores its last valid observation per provider/account, metric label
 and window plus the 32 latest changes in `weekly-resets.json` in the plugin data
@@ -48,12 +49,40 @@ manual credit redemption. A smaller credit inventory is recorded as supporting
 evidence only. The plugin never replaces the provider's `reset_at`.
 
 The existing weekly clock and schedule tooltips show source, reading time and
-changes detected within the last 24 hours. There are no new cards or settings.
+changes detected within the last 24 hours. Resets & Credits also shows one compact
+**Weekly reset changed** card at the bottom of the column, below urgent alerts,
+the schedule and reset credits. It lists each affected model/account with its
+previous and current announced date (including the local timezone); the tooltip
+and archive also retain the new date observed at detection. It disappears exactly 24
+hours after detection, including while the panel stays open. Early renewals are
+identified as observations; date-only changes say **Renewal not confirmed**.
+Scheduled renewals, date-only seven-day rollovers around the old deadline, and
+zero-usage timers whose now+7d deadlines float with each reading do not create
+unexpected-change notices. No desktop notifications or new settings are added.
 Readings older than the greater of 15 minutes and twice the polling interval
 show `~` in the schedule. Missing or expired dates show `Check` / `Pending
 confirmation`, rather than a fabricated seven-day countdown. Old/unconfirmed
 schedules do not generate weekly sprint or reset-credit advice; reported quota
 exhaustion still blocks routing.
+
+The 32-event working history is separate from the permanent archive. Each event
+is saved as `weekly-reset-event-<UTC timestamp>-<sequence>.json` in the same plugin
+data directory, with no automatic deletion. The schema is `version: 1`,
+`archive_id`, `provider`, `window` and `change`. New changes preserve both reading
+times, detection time, both announced reset dates (Unix seconds plus original
+timestamp strings), source labels, usage percentages, available reset-credit
+counts and the classification/expected/floating flags. Numeric timestamps are
+UTC Unix seconds, so DST cannot make two observations ambiguous. Credit counts
+do not prove redemption, and a source that is not identified more precisely by
+the report remains `ai-usagebar`.
+
+Saved v1 events are imported once on upgrade, without inventing fields absent
+from the old history. The archive is never trimmed with the recent-event list.
+Files and working state use temporary writes followed by rename. An archive
+failure stays in a persistent outbox for retry; write failures are also reported
+in Noctalia's logs, and successful archives emit a structured log entry. Cached,
+failed, out-of-order or old readings cannot create new events or restart the
+24-hour notice. Sub-hour date-only drift remains below the event threshold.
 
 Polling is brought forward to the announced deadline. Expired dates are checked
 again at the smaller of one minute and the configured interval, including after
@@ -64,10 +93,12 @@ reconstruct older renewals or predict an unannounced provider reset.
 covers scheduled renewals, timestamp drift, source changes, credit inventory
 evidence, old/failed reads, account/model isolation and bounded history.
 `tests/refresh_test.lua` verifies deadline polling, retry intervals, persistence,
-restart recovery and corrupt-file handling. `tests/panel_test.lua` checks that
-renewal explanations stay in tooltips and unconfirmed schedules do not create
-false countdowns or urgent alerts. On the installed shell, version 1.7.1 was
-loaded and its history file populated with the configured provider baselines.
+restart recovery, archive migration, deduplication and write/finalization retries.
+`tests/panel_test.lua` checks 24-hour notices, before/after dates, unconfirmed
+renewals and suppression of scheduled/floating changes. Unconfirmed schedules
+do not create false countdowns or urgent alerts. On the installed shell, version
+1.7.2 was loaded, the saved events were archived, and the live notice was checked
+visually with the October 25 Codex and Gemini changes.
 
 ## Failure diagnostics in 1.7.0
 

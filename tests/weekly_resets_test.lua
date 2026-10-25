@@ -34,6 +34,14 @@ history = track(after, history)
 assert(#history.events == 1 and history.events[1].change.kind == "early_renewal")
 assert(not history.events[1].change.fewer_credits, "a quota drop must not imply a credit was spent")
 assert(after.metrics[1].reset_at == iso(newReset), "never override the upstream date")
+local observed = after.metrics[1].reset_observation.event
+assert(observed.previous_at == now and observed.previous_source == "ai-usagebar"
+    and observed.source == "ai-usagebar" and observed.previous_credits == 2 and observed.credits == 2
+    and observed.previous_reset_at_raw == iso(oldReset) and observed.reset_at_raw == iso(newReset),
+    "events must retain the two readings used to infer a renewal")
+assert(shared.weeklyResetChange(after.metrics[1], today) == observed)
+assert(shared.weeklyResetChange(after.metrics[1], today + 86400) == nil, "the notice expires at exactly 24h")
+assert(shared.weeklyResetChange(after.metrics[1], today - 1) == nil, "future events must not appear")
 local tip = shared.weeklyResetTooltip(after.metrics[1], after, today)
 assert(tip:find("Early renewal detected", 1, true) and tip:find("Previously announced", 1, true))
 assert(shared.weeklyResetStatus(after.metrics[1], after, today) == "announced")
@@ -66,6 +74,12 @@ assert(shared.weeklyResetStatus({}, after, today) == "pending", "missing deadlin
 local scheduled = entry(oldReset + 1, oldReset + 604800, 0)
 local scheduledHistory = track(scheduled, track(before))
 assert(scheduledHistory.events[1].change.kind == "renewal")
+assert(scheduledHistory.events[1].change.expected == true)
+local dateOnly = entry(oldReset + 1, oldReset + 604800, 50)
+local dateOnlyHistory = track(dateOnly, track(before))
+assert(dateOnlyHistory.events[1].change.expected == true
+    and shared.weeklyResetChange(dateOnly.metrics[1], oldReset + 1) == nil,
+    "a scheduled rollover without a usage drop is not an unexpected change")
 local correction = entry(now + 300, oldReset + 7200, 50)
 local corrected = track(correction, track(before))
 assert(corrected.events[1].change.kind == "schedule_changed")
@@ -73,11 +87,27 @@ local sourceChange = entry(now + 300, newReset, 0)
 sourceChange.sections = { { label = "Source", value = "Local agy session" } }
 assert(track(sourceChange, track(before)).events[1].change.kind == "schedule_changed",
     "a source switch alone cannot confirm a renewal")
+assert(sourceChange.metrics[1].reset_observation.event.previous_source == "ai-usagebar"
+    and sourceChange.metrics[1].reset_observation.event.source == "Local agy session")
 local drift = entry(now + 300, oldReset + 1, 49)
 assert(#track(drift, track(before)).events == 0, "ignore second-level timestamp drift")
 local credit = entry(today, newReset, 0)
 credit.reset_credits.available = 1
 assert(track(credit, track(before)).events[1].change.fewer_credits)
+
+-- Idle now+7d timers and stale cache replays must not produce false alerts.
+local idle = entry(now, now + 604800, 0)
+local idleLater = entry(now + 7200, now + 7200 + 604800, 0)
+local idleHistory = track(idleLater, track(idle))
+assert(idleHistory.events[1].change.floating
+    and shared.weeklyResetChange(idleLater.metrics[1], now + 7200) == nil)
+local staleFreshFlag = entry(today, newReset, 0)
+local staleHistory = track(staleFreshFlag, track(before), today + 3600)
+assert(#staleHistory.events == 0, "an old timestamp cannot acquire a new detection time even if stale=false")
+local collected = {}
+shared.trackWeeklyResets({ entries = { after } }, track(before), today, collected)
+assert(#collected == 1 and collected[1].change.detected_at == today,
+    "the service must receive new events separately from the bounded recent history")
 
 -- Baselines remain separate for accounts and model pools, including hidden ones.
 local separate = shared.trackWeeklyResets({ entries = {

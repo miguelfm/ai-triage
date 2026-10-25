@@ -363,19 +363,36 @@ assert(has(filteredPanelLabels, "Gemini"), "Gemini must remain visible in panel 
 assert(not has(filteredPanelLabels, "Claude & GPT OSS"), "Claude & GPT OSS must NOT be rendered anywhere in panel when hidden")
 assert(has(filteredPanelLabels, "Claude"), "Anthropic Claude Pro must NOT be hidden in panel")
 
--- Renewal explanations live on hover, without adding panels or visible prose.
+-- Unexpected changes remain visible for 24h, with explicit before/after dates.
 local resetEntry = creditEntry("openai", "Codex", 50, 2.5, {})
 local weekly = resetEntry.metrics[2]
 weekly.reset_observation = { at = os.time(), source = "ai-usagebar", event = {
     kind = "early_renewal", at = os.time(), previous_reset_at = os.time() + 3600,
+    reset_at = os.time() + 7200,
 } }
 local resetTree = loadPanel(resetEntry)
 local resetLabels = labels(resetTree)
-assert(not mentions(resetLabels, "Early renewal"), "renewal explanations should not add visible clutter")
+assert(has(resetLabels, "Weekly reset changed") and has(resetLabels, "Codex · Early renewal observed")
+    and mentions(resetLabels, "Before:") and mentions(resetLabels, "Now announced:"),
+    "a recent unexpected renewal must show a compact before/after notice")
 local tips = {}
 for _, row in ipairs(collect(resetTree, "row")) do tips[#tips + 1] = row.props.tooltip or "" end
 assert(mentions(tips, "Early renewal detected") and mentions(tips, "Next weekly reset announced"),
     "both the clock and schedule must explain provider dates on hover")
+local event = weekly.reset_observation.event
+event.kind = "schedule_changed"
+assert(has(labels(loadPanel(resetEntry)), "Codex · Renewal not confirmed"),
+    "a date-only change must not claim a renewal")
+event.at = os.time() - 86401
+assert(not has(labels(loadPanel(resetEntry)), "Weekly reset changed"), "the notice must disappear after 24h")
+event.detected_at = os.time()
+assert(has(labels(loadPanel(resetEntry)), "Weekly reset changed"), "the notice starts at detection, not old reading time")
+event.expected = true
+assert(not has(labels(loadPanel(resetEntry)), "Weekly reset changed"), "scheduled rollovers must not create unexpected-change alerts")
+event.expected, event.floating = false, true
+assert(not has(labels(loadPanel(resetEntry)), "Weekly reset changed"), "idle floating timers must not create unexpected-change alerts")
+event.floating, event.kind = false, "renewal"
+assert(not has(labels(loadPanel(resetEntry)), "Weekly reset changed"), "normal renewals must stay quiet")
 
 weekly.reset_at = isoIn(-60)
 local pendingLabels = labels(loadPanel(resetEntry))

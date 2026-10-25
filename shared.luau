@@ -1825,10 +1825,11 @@ function M.reconcileReportCycles(report, _nowTime)
     return report
 end
 
--- Keep observations, never a second calendar. One baseline per account/window
--- and 32 recent changes are enough to explain renewals across service restarts.
-function M.trackWeeklyResets(report, history, nowTime)
+-- Keep observations, never a second calendar. The service archives new events;
+-- only the recent 32 and the latest baseline are needed in the working state.
+function M.trackWeeklyResets(report, history, nowTime, changes)
     local now = nowTime or os.time()
+    changes = changes or {}
     history = type(history) == "table" and history.version == 1 and history or {}
     history.version = 1
     history.samples = type(history.samples) == "table" and history.samples or {}
@@ -1853,7 +1854,10 @@ function M.trackWeeklyResets(report, history, nowTime)
                     local reset = M.parseIso(metric.reset_at)
                     local percent = tonumber(metric.percent)
                     local credits = type(entry.reset_credits) == "table" and tonumber(entry.reset_credits.available) or nil
+                    local minutes = type(noctalia) == "table" and type(noctalia.getConfig) == "function"
+                        and tonumber(noctalia.getConfig("refresh_minutes")) or 5
                     local fresh = not M.unavailable(entry) and entry.stale ~= true and at <= now + 60
+                        and now - at <= math.max(900, (minutes or 5) * 120)
                         and (not previous or at > (tonumber(previous.at) or 0))
                     if fresh and reset and percent then
                         local event = previous and previous.event
@@ -1867,15 +1871,30 @@ function M.trackWeeklyResets(report, history, nowTime)
                                 kind = "schedule_changed"
                             end
                             if kind then
-                                event = { kind = kind, at = at, previous_reset_at = oldReset, reset_at = reset,
+                                local window = tonumber(metric.window_secs) or 604800
+                                event = { kind = kind, at = at, detected_at = now,
+                                    previous_at = previous.at, previous_reset_at = oldReset, reset_at = reset,
+                                    previous_reset_at_raw = previous.reset_at_raw, reset_at_raw = metric.reset_at,
+                                    previous_fetched_at = previous.fetched_at, fetched_at = entry.fetched_at,
+                                    previous_source = previous.source, source = source,
                                     previous_percent = previous.percent, percent = percent,
+                                    previous_credits = previous.credits, credits = credits,
+                                    expected = kind == "renewal" or (at >= oldReset - 60
+                                        and math.abs(reset - oldReset - window) <= 300),
+                                    floating = percent == 0 and previous.percent == 0
+                                        and tonumber(previous.at) ~= nil
+                                        and math.abs(reset - at - window) <= 60
+                                        and math.abs(oldReset - previous.at - window) <= 60,
                                     fewer_credits = credits ~= nil and tonumber(previous.credits) ~= nil
                                         and credits < tonumber(previous.credits) or false }
-                                history.events[#history.events + 1] = { provider = entry.id, window = key, change = event }
+                                local record = { provider = entry.id, window = key, change = event }
+                                history.events[#history.events + 1] = record
+                                changes[#changes + 1] = record
                             end
                         end
                         previous = { at = at, reset_at = reset, percent = percent, credits = credits,
-                            source = source, event = event }
+                            source = source, event = event, fetched_at = entry.fetched_at,
+                            reset_at_raw = metric.reset_at }
                         samples[key] = previous
                         history.samples[entry.id] = samples
                     end
@@ -1902,6 +1921,19 @@ function M.trackWeeklyResets(report, history, nowTime)
         end
     end
     return history
+end
+
+-- Detection time controls the 24h notice. Old v1 histories only have reading time.
+function M.weeklyResetChange(metric, nowTime)
+    local observation = metric and metric.reset_observation
+    local event = type(observation) == "table" and observation.event
+    if type(event) ~= "table" then return nil end
+    local now = nowTime or os.time()
+    local at = tonumber(event.detected_at) or tonumber(event.at)
+    if not at or at > now or now - at >= 86400 then return nil end
+    if event.kind ~= "early_renewal" and event.kind ~= "schedule_changed" then return nil end
+    if event.expected or event.floating then return nil end
+    return event
 end
 
 function M.weeklyResetStatus(metric, entry, nowTime)
@@ -1934,11 +1966,14 @@ function M.weeklyResetTooltip(metric, entry, nowTime)
         lines[#lines + 1] = "Source: " .. tostring(observation.source or "ai-usagebar")
         local event = observation.event
         -- Keep the full history on disk; only explain a recent change on hover.
-        if type(event) == "table" and tonumber(event.at) and (nowTime or os.time()) - event.at <= 86400 then
+        local detected = type(event) == "table" and (tonumber(event.detected_at) or tonumber(event.at))
+        local age = detected and (nowTime or os.time()) - detected
+        if age and age >= 0 and age < 86400 then
             local descriptions = { early_renewal = "Early renewal detected", renewal = "Renewal detected",
                 schedule_changed = "Schedule changed; renewal not confirmed" }
             lines[#lines + 1] = (descriptions[event.kind] or "Schedule changed") .. " at " .. date(event.at) .. "."
             if tonumber(event.previous_reset_at) then lines[#lines + 1] = "Previously announced: " .. date(event.previous_reset_at) end
+            if tonumber(event.reset_at) then lines[#lines + 1] = "Changed to: " .. date(event.reset_at) end
             if event.fewer_credits then lines[#lines + 1] = "Fewer reset credits available in this reading." end
         end
     end
