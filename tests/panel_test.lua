@@ -320,6 +320,26 @@ assert(has(spentLabels, "Optimal Reset Window!") and has(spentLabels, "CLAIM NOW
     "a spent week with days left must recommend the claim")
 assert(mentions(spentLabels, "claim now: ~100% of a week back"), "the claim must state what it buys back")
 
+-- Credit pacing names its real deadline and exposes the available-time estimate.
+local datedCredit = creditEntry("openai", "Codex", 60, 168, { 24 })
+local datedTree, _, datedEnv = loadPanel(datedCredit, nil, calendarConfig)
+local datedShared = datedEnv.require("./shared.luau")
+local expiry = datedShared.parseIso(datedCredit.reset_credits.credits[1].expires_at)
+local deadlineTip = false
+for _, row in ipairs(collect(datedTree, "row")) do
+    local tip = row.props.tooltip or ""
+    if tip:find("Claim before " .. os.date("%b %d %H:%M %Z", expiry), 1, true)
+        and tip:find("h needed /", 1, true) and tip:find("h available", 1, true) then deadlineTip = true end
+end
+assert(deadlineTip and has(labels(datedTree), "Fast-track"),
+    "fast-track must explain the real credit deadline and required/available time")
+local shortTree = loadPanel(creditEntry("openai", "Codex", 10, 168, { 5.5 }), nil, calendarConfig)
+local limitedTime = false
+for _, row in ipairs(collect(shortTree, "row")) do
+    if tostring(row.props.tooltip or ""):find("95% may be unreachable", 1, true) then limitedTime = true end
+end
+assert(limitedTime, "an infeasible 95% target must not be presented as assured")
+
 -- Weekly Reset Schedule visibility in Column 3
 assert(has(holdLabels, "Weekly Reset Schedule"), "Column 3 must display the Weekly Reset Schedule")
 assert(has(holdLabels, "0d 05h") and has(holdLabels, "5d 12h"), "Column 3 schedule rows must display remaining time as Xd Yh in its own cell")

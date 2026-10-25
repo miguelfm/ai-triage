@@ -280,6 +280,13 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
 
     if isWeekly and advice and staggerPlan.fastTrack and staggerPlan.fastTrack[baseId] then
         local isLeader = staggerPlan.hasCollision and staggerPlan.advanceProviderId == baseId
+        local urgency = advice.urgency
+        local summary = advice.summary
+        if urgency then
+            summary = string.format("Claim before %s · ~%.1fh needed / %.1fh available · up to ~%d%% extra quota%s",
+                os.date("%b %d %H:%M %Z", urgency.deadlineAt), urgency.neededHours, urgency.availableHours,
+                math.floor(advice.cycleGain + 0.5), urgency.feasible and "" or " · 95% may be unreachable in this window")
+        end
         return {
             status = "fast_track",
             label = "Fast-track",
@@ -288,9 +295,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
             bg = "primary/0.20",
             border = "primary/0.50",
             cardBorder = "primary/0.50",
-            summary = string.format("%s: burn remaining %d%% (~%d sessions), then claim · worth ~%d%% of a week",
-                isLeader and "Advance reset" or "Last cycle for the reset credit",
-                remainingQuota, math.max(1, math.ceil(advice.sessionsToSpend - 0.25)), math.floor(advice.cycleGain + 0.5)),
+            summary = (isLeader and "Advance reset: " or "Reset credit: ") .. summary,
         }
     end
 

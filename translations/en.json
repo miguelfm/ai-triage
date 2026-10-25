@@ -54,24 +54,24 @@
       "label": "Schedule-aware triage"
     },
     "sleep_start_hour": {
-      "description": "Hour when sleep or off-hours begin on weekdays (e.g. 0 for midnight, 23 for 11 PM).",
+      "description": "Weekday off-hours start, in half-hour steps (e.g. 22 for 22:00, 22.5 for 22:30).",
       "label": "Sleep / off-hours start (weekdays)"
     },
     "sleep_end_hour": {
-      "description": "Hour when active usage resumes in the morning on weekdays (e.g. 8 for 8 AM).",
+      "description": "Weekday active hours resume, in half-hour steps (e.g. 8.5 for 08:30).",
       "label": "Wake / active hours resume (weekdays)"
     },
     "weekend_sleep_start_hour": {
-      "description": "Hour when sleep or off-hours begin on weekends (e.g. 1 for 1 AM).",
+      "description": "Weekend off-hours start, in half-hour steps (e.g. 22 for 22:00).",
       "label": "Sleep / off-hours start (weekends)"
     },
     "weekend_sleep_end_hour": {
-      "description": "Hour when active usage resumes on weekends (e.g. 9 for 9 AM).",
+      "description": "Weekend active hours resume, in half-hour steps (e.g. 8.5 for 08:30).",
       "label": "Wake / active hours resume (weekends)"
     },
     "meal_pause_hours": {
-      "description": "Estimated inactive hours during daytime for lunch, dinner, or rest breaks.",
-      "label": "Daily meal & break pause (hours)"
+      "description": "Daily hours unavailable for meals, breaks or other tasks (0–24). Spread proportionally across waking hours; no fixed break times.",
+      "label": "Other daily unavailable time (hours)"
     },
     "hide_claude_oss": {
       "description": "Hides the Claude & GPT OSS tier from Antigravity in both the bar and panel, keeping Gemini active.",

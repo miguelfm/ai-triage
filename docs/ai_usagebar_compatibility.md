@@ -4,6 +4,8 @@ AI Triage **1.6.3** introduced the compatibility corrections documented below.
 Version **1.7.0** added failure diagnostics; **1.7.1** adds the weekly renewal
 observations and confirmation behavior described below.
 Version **1.7.2** adds a visible 24-hour notice and permanent event archives.
+Version **1.7.3** adds half-hour availability budgets and credit-expiry scoring
+separate from ordinary weekly urgency, with deadline/capacity regression coverage.
 
 Checked on 2026-10-23 against the latest published release,
 [v1.43.0](https://github.com/akitaonrails/ai-usagebar/releases/tag/v1.43.0),
@@ -31,6 +33,47 @@ and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob
 | Failures and stale data | HTTP diagnostics remain visible in pinned tooltips; stale HTTP-error readings are not treated as live quota. Successful reads replace failures. Existing redaction tests continue to pass. |
 | Antigravity reconciliation | The plugin only enriches default-account Cloud Code fallback readings (`Source: Google API`). It preserves newer upstream `agy`/statusline readings instead of querying the default account again. |
 | Weekly renewal observations | Provider dates remain authoritative. A bounded local history explains early renewals and date-only changes without inventing another renewal calendar. Old or expired schedules cannot trigger weekly sprint or reset-credit recommendations. |
+
+## Availability and reset-credit deadlines in 1.7.3
+
+Sleep boundaries accept half-hour steps. Other daily unavailable hours are
+distributed proportionally across waking time, with no fixed meal window.
+Weekday/weekend and DST boundaries apply throughout the weekly forecast;
+the former fixed availability approximation beyond 48 hours has been removed.
+For example, 22:00–08:30 off-hours plus 5 other unavailable hours yields
+8.5 available hours/day and a 59.5-hour nominal week. Exceptional activity
+starting during off-hours receives a limited two-hour awake burst.
+
+Reset-credit priority uses a separate, bounded bonus based on actual expiry,
+estimated additional quota and work remaining to the 95% claim threshold.
+The budget reserves one available hour to claim and at least one session to
+use the refill before natural renewal, subtracting unavailable capacity in
+the current session. Weekly pacing retains the provider's real renewal horizon.
+Fast-track tooltips show the deadline and required/available time, and flag
+targets that may be unreachable. Credits are still claimed manually through
+the provider dashboard.
+
+`tests/schedule_test.lua` covers half-hour boundaries, daily/weekly budgets,
+nighttime exceptions, DST and calendar-time fallback. `tests/credit_deadline_test.lua`
+replays the October 29 credit / November 1 renewal with this availability profile
+and covers expiry pressure, bounded refill value, current session limits,
+missing/stale/expired data, named accounts, multiple credits and collisions.
+Existing claim/hold guards, weekly/session lockouts and the v1.7.2 event archive
+remain covered by the full suite. Panel tests verify real-deadline tooltips and
+potentially unreachable targets.
+
+The October 25 regression audit also compared 2,000 ordinary scores and 2,271
+provider-credit decisions against the previous credit logic with the same
+availability calculation. Scores without a credit incentive were identical;
+claim/advance/hold, valuation, collision and deferral decisions were preserved.
+Live ai-usagebar reads returned ready, non-stale entries for Claude, Codex and
+Antigravity. All twelve Lua suites, both timezone-specific availability/deadline
+checks, plugin lint and configuration validation passed.
+
+These forecasts assume the model's nominal session consumption pace. They are
+capacity estimates, not guaranteed throughput, and do not predict provider
+schedule changes. See the [mathematical model](mathematical_model.md#22-value-of-a-claim)
+for the credit bonus formula and limits.
 
 ## Weekly renewal observations and change notices in 1.7.2
 
@@ -144,12 +187,15 @@ From the repository root:
 for test in tests/*_test.lua; do
   TZ=America/New_York lua "$test" || exit
 done
+TZ=Europe/Brussels lua tests/schedule_test.lua
+TZ=Europe/Brussels lua tests/credit_deadline_test.lua
 python tests/check_ai_usagebar.py --live
 noctalia plugins lint .
 noctalia config validate
 ```
 
-The ten Lua suites pass, including weekly renewal observations, 22 diagnostic
+The twelve Lua suites pass, including real credit deadlines, availability budgets,
+weekly renewal observations, 22 diagnostic
 classification cases, visible recovery guidance, clipboard actions, automatic-bar failures and recovery after
 a successful read. The Python check compares the installed provider
 catalog with the recorded 1.43.0 catalog and the manifest/translations. It also
@@ -159,10 +205,11 @@ providers and feeds their actual JSON document through the poller and mocked
 bar/panel hosts. Without `--live`, it makes no quota requests.
 
 Live authenticated checks on this machine returned `ready`, `stale: false` for
-Claude, Codex and Antigravity. After reloading the plugin, its panel was also
-opened and visually checked in Noctalia: current Claude/Codex quotas and the
-locally reconciled Gemini quota appeared correctly. Native lint reports zero
-errors and zero warnings; the active shell configuration validates.
+Claude, Codex and Antigravity. The v1.7.2 panel was visually checked in Noctalia:
+Claude/Codex quotas, locally reconciled Gemini quota and reset-change notices
+appeared correctly. The v1.7.3 deadline and feasibility tooltips are covered by
+the panel host tests. Native lint reports zero errors and zero warnings; the
+active shell configuration validates.
 
 ## Scope and limits
 

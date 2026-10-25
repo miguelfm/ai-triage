@@ -1052,6 +1052,8 @@ end
 -- the week, the same C_max the weekly triage uses.
 M.CLAIM_MIN_WEEKLY_PCT = 95 -- the week is effectively spent
 M.CLAIM_VALUE_RATIO = 0.5   -- spend it now only for at least half of what it is worth later
+M.CLAIM_MARGIN_ACTIVE_HOURS = 1.0
+M.CREDIT_MAX_BONUS = 300.0 -- a full extra week at (or beyond) the required burn pace
 
 local function sessionCapacity(activeHours, gearing)
     return math.max(0.0, activeHours) * 20.0 / gearing
@@ -1131,7 +1133,8 @@ local function adviseResetCredit(stats, gearing, nowTime, config)
         cycleGain = cycleGain,
         laterGain = laterGain,
         lastChance = lastChance,
-        sessionsToSpend = wFree / oneSession,
+        expiresAt = expiresAt,
+        sessionsToSpend = math.max(0, M.CLAIM_MIN_WEEKLY_PCT - stats.weeklyPercent) / oneSession,
     }
     if worthIt and (spent or canClaimPeril or (expiryFirst and expiryHours <= 2.0)) then
         advice.status = "claim"
@@ -1142,7 +1145,11 @@ local function adviseResetCredit(stats, gearing, nowTime, config)
                 expiresIn, math.floor(nowGain + 0.5))
     elseif worthIt then
         advice.status = "advance"
-        if lastChance and (renewAt - nowTime) <= (7 * 86400) and not expiryFirst then
+        if expiresAt < renewAt then
+            advice.summary = string.format("Claim before %s · burn remaining %d%% early · worth up to ~%d%% of a week",
+                os.date("%b %d %H:%M %Z", expiresAt),
+                math.floor(math.max(0, M.CLAIM_MIN_WEEKLY_PCT - stats.weeklyPercent) + 0.5), math.floor(cycleGain + 0.5))
+        elseif lastChance and (renewAt - nowTime) <= (7 * 86400) and not expiryFirst then
             advice.summary = string.format("Claim before renewal in %s · burn remaining %d%% early · worth ~%d%% of a week",
                 renewIn, math.floor(wFree + 0.5), math.floor(cycleGain + 0.5))
         elseif expiryFirst then
@@ -1161,6 +1168,52 @@ local function adviseResetCredit(stats, gearing, nowTime, config)
                 math.floor(cycleGain + 0.5))
     end
     return advice
+end
+
+-- Credit expiry is a separate opportunity, not an expiry of the current quota.
+-- Keep its score bounded by the extra quota it can buy, using the real deadline
+-- and remaining burn work. Ordinary weekly/session urgency remains unchanged.
+function M.resetCreditUrgency(item, advice, nowTime, config, isUserActiveNow)
+    if not item or not advice or advice.status ~= "advance" then return nil end
+    local now = nowTime or os.time()
+    config = config or M.getScheduleConfig()
+    if M.unavailable(item.entry) or M.weeklyResetStatus(item.weeklyMetric, item.entry, now) ~= "announced" then return nil end
+    local expiresAt = tonumber(advice.expiresAt)
+    local renewAt = M.parseIso(item.weeklyMetric and item.weeklyMetric.reset_at)
+    local gain = math.min(100, math.max(0, tonumber(advice.cycleGain) or 0))
+    if not expiresAt or expiresAt <= now or not renewAt or gain <= 0 then return nil end
+
+    local gearing = M.getModelGearing(item.providerId or (item.entry and item.entry.id), item.name)
+    local percent = tonumber(item.weeklyMetric.percent) or 0
+    local toSpend = math.max(0, M.CLAIM_MIN_WEEKLY_PCT - percent)
+    local needed = toSpend * gearing / 20.0
+    if needed <= 0 then return nil end
+
+    local deadline = math.min(expiresAt, renewAt)
+    local expiryHours = M.calculateActiveHours(now, deadline, config, isUserActiveNow)
+    local cycleHours = M.calculateActiveHours(now, renewAt, config, isUserActiveNow)
+    -- Leave at least one full session to use the refill before natural renewal.
+    -- The credit analysis already withholds claims that are not worth that much.
+    local budget = math.max(0, math.min(expiryHours, cycleHours - 5.0) - M.CLAIM_MARGIN_ACTIVE_HOURS)
+    local session = item.sessionMetric
+    local sessionAt = M.parseIso(session and session.reset_at)
+    local blockedHours = 0
+    if sessionAt and sessionAt > now then
+        local beforeReset = M.calculateActiveHours(now, math.min(sessionAt, deadline), config, isUserActiveNow)
+        local sessionFree = math.max(0, 100 - (tonumber(session.percent) or 0))
+        -- Until the current session resets, unused active time beyond its
+        -- remaining allowance cannot help reach the weekly claim threshold.
+        blockedHours = math.max(0, beforeReset - sessionFree / 20.0)
+    end
+    local available = math.max(0, budget - blockedHours)
+    local pressure = needed / math.max(0.25, available)
+    return {
+        expiresAt = expiresAt, deadlineAt = deadline,
+        neededHours = needed, availableHours = available, blockedHours = blockedHours,
+        marginHours = M.CLAIM_MARGIN_ACTIVE_HOURS, percentToSpend = toSpend,
+        pressure = pressure, feasible = needed <= available,
+        bonus = M.CREDIT_MAX_BONUS * (gain / 100.0) * math.min(1, pressure) ^ 2,
+    }
 end
 
 -- When two or more providers have weekly reset credits/promotions expiring
@@ -1249,6 +1302,7 @@ function M.analyzeResetCredits(entries, nowTime, scheduleConfig)
                 weeklyResetAt = wAt,
                 weeklyWindowSecs = wWindow,
                 weeklyRemainingSecs = wRemainingSecs,
+                entry = entry,
             }
             stats.advice = adviseResetCredit(stats, M.getModelGearing(id, displayName), nowTime, scheduleConfig)
             stats.canClaimNow = stats.advice.status == "claim"
@@ -1345,6 +1399,14 @@ function M.analyzeResetCredits(entries, nowTime, scheduleConfig)
         end
     end
 
+    for id, stats in pairs(providerStats) do
+        if staggerPlan.fastTrack[id] then
+            local session, weekly = M.dualMetrics(stats.entry.metrics)
+            stats.advice.urgency = M.resetCreditUrgency({ entry = stats.entry, providerId = id,
+                name = stats.name, sessionMetric = session, weeklyMetric = weekly },
+                stats.advice, nowTime, scheduleConfig, true)
+        end
+    end
     return staggerPlan, providerStats
 end
 
@@ -1554,7 +1616,7 @@ M.DEFAULT_SCHEDULE = {
     sleepEndHour = 8,           -- 08:00 AM on weekdays
     weekendSleepStartHour = 1,  -- 01:00 AM on weekends
     weekendSleepEndHour = 9,    -- 09:00 AM on weekends
-    mealPauseHours = 1,         -- 1h pause for lunch/dinner
+    mealPauseHours = 1,         -- Unscheduled daytime unavailability, spread across waking hours
     burstDurationHours = 2.0,   -- 2h active awake burst when active out-of-schedule
 }
 
@@ -1579,13 +1641,38 @@ function M.getScheduleConfig()
 
     return {
         scheduleAware = aware,
-        sleepStartHour = numConfig("sleep_start_hour", 0, 0, 23),
-        sleepEndHour = numConfig("sleep_end_hour", 8, 0, 23),
-        weekendSleepStartHour = numConfig("weekend_sleep_start_hour", 1, 0, 23),
-        weekendSleepEndHour = numConfig("weekend_sleep_end_hour", 9, 0, 23),
-        mealPauseHours = numConfig("meal_pause_hours", 1, 0, 3),
+        sleepStartHour = numConfig("sleep_start_hour", 0, 0, 23.5),
+        sleepEndHour = numConfig("sleep_end_hour", 8, 0, 23.5),
+        weekendSleepStartHour = numConfig("weekend_sleep_start_hour", 1, 0, 23.5),
+        weekendSleepEndHour = numConfig("weekend_sleep_end_hour", 9, 0, 23.5),
+        mealPauseHours = numConfig("meal_pause_hours", 1, 0, 24),
         burstDurationHours = 2.0,
     }
+end
+
+local function sleepWindow(config, date)
+    local weekend = date.wday == 1 or date.wday == 7
+    return weekend and config.weekendSleepStartHour or config.sleepStartHour,
+        weekend and config.weekendSleepEndHour or config.sleepEndHour
+end
+
+local function inSleepWindow(hour, startHour, endHour)
+    if startHour == endHour then return false end
+    if startHour < endHour then return hour >= startHour and hour < endHour end
+    return hour >= startHour or hour < endHour
+end
+
+-- Sustainable weekly pace follows the configured budget, rather than assuming
+-- 15 hours available every day regardless of the user's actual schedule.
+function M.nominalWeeklyActiveHours(config)
+    config = config or M.getScheduleConfig()
+    if not config.scheduleAware then return 105.0 end
+    local function daily(startHour, endHour)
+        local sleep = (endHour - startHour) % 24
+        return math.max(0, 24 - sleep - (config.mealPauseHours or 0))
+    end
+    return daily(config.sleepStartHour, config.sleepEndHour) * 5
+        + daily(config.weekendSleepStartHour, config.weekendSleepEndHour) * 2
 end
 
 -- Calculates effective active working hours between tStart and tEnd.
@@ -1604,76 +1691,55 @@ function M.calculateActiveHours(tStart, tEnd, config, isUserActiveNow)
         isUserActiveNow = true
     end
 
+    local current = os.date("*t", tStart)
+    local sleepStart, sleepEnd = sleepWindow(config, current)
     local burstUntil = tStart
-    if isUserActiveNow then
+    if isUserActiveNow and inSleepWindow(current.hour + current.min / 60, sleepStart, sleepEnd) then
         burstUntil = tStart + ((config.burstDurationHours or 2.0) * 3600)
     end
 
     local totalActiveHours = 0.0
     local cur = tStart
-    local step = 3600 -- 1-hour integration step
-
     while cur < tEnd do
-        -- Fast-path for far time horizons beyond 48 hours:
-        -- Beyond 2 days, exact circadian boundaries have zero differential effect on triage;
-        -- add nominal active working ratio (0.65 ~= 15.6 active hours / 24h) and break.
-        if (cur - tStart) >= 172800 then
-            local farHours = (tEnd - cur) / 3600.0
-            totalActiveHours = totalActiveHours + (farHours * 0.65)
-            break
+        local date = os.date("*t", cur)
+        local function localTime(hour, dayOffset)
+            return os.time({ year = date.year, month = date.month, day = date.day + (dayOffset or 0),
+                hour = math.floor(hour), min = math.floor((hour % 1) * 60 + 0.5), sec = 0 })
         end
-
-        local nextCur = math.min(tEnd, cur + step)
-        local dtHours = (nextCur - cur) / 3600.0
-        local mid = (cur + nextCur) * 0.5
-
-        local weight = 1.0
-        if mid < burstUntil then
-            -- Active out-of-schedule or immediate awake burst
-            weight = 1.0
-        else
-            local date = os.date("*t", math.floor(mid))
-            local wday = date.wday -- 1 = Sunday, 7 = Saturday
-            local isWeekend = (wday == 1 or wday == 7)
-            local hour = date.hour + date.min / 60.0
-
-            local sStart = isWeekend and config.weekendSleepStartHour or config.sleepStartHour
-            local sEnd = isWeekend and config.weekendSleepEndHour or config.sleepEndHour
-
-            local inSleep = false
-            if sStart == sEnd then
-                inSleep = false
-            elseif sStart < sEnd then
-                inSleep = (hour >= sStart and hour < sEnd)
-            else
-                inSleep = (hour >= sStart or hour < sEnd)
+        local dayStart, dayEnd = localTime(0), localTime(0, 1)
+        local sStart, sEnd = sleepWindow(config, date)
+        local boundaries = { dayStart, dayEnd, localTime(sStart), localTime(sEnd) }
+        table.sort(boundaries)
+        local awakeHours = 0
+        local spans = {}
+        for index = 1, #boundaries - 1 do
+            local first, last = boundaries[index], boundaries[index + 1]
+            if last > first then
+                local mid = os.date("*t", math.floor((first + last) / 2))
+                local sleeping = inSleepWindow(mid.hour + mid.min / 60, sStart, sEnd)
+                spans[#spans + 1] = { first = first, last = last, sleeping = sleeping }
+                if not sleeping then awakeHours = awakeHours + (last - first) / 3600 end
             end
-
-            if inSleep then
-                weight = 0.0
-            else
-                if config.mealPauseHours and config.mealPauseHours > 0 then
-                    local lunchStart = 14.0
-                    local lunchEnd = 14.0 + config.mealPauseHours
-                    if hour >= lunchStart and hour < lunchEnd then
-                        weight = 0.15
-                    else
-                        weight = 1.0
-                    end
+        end
+        local daytimeWeight = awakeHours > 0
+            and math.max(0, 1 - (config.mealPauseHours or 0) / awakeHours) or 0
+        for _, span in ipairs(spans) do
+            local first, last = math.max(cur, span.first), math.min(tEnd, span.last)
+            if last > first then
+                if span.sleeping then
+                    totalActiveHours = totalActiveHours + math.max(0, math.min(last, burstUntil) - first) / 3600
                 else
-                    weight = 1.0
+                    totalActiveHours = totalActiveHours + (last - first) / 3600 * daytimeWeight
                 end
             end
         end
-
-        totalActiveHours = totalActiveHours + (dtHours * weight)
-        cur = nextCur
+        cur = dayEnd
     end
 
     return math.max(0.25, totalActiveHours)
 end
 
--- Nominal weekly active waking hours: 7 days * ~15 active hours/day (discounting sleep and meal breaks)
+-- Default reference only; scoring uses nominalWeeklyActiveHours(config).
 M.NOMINAL_WEEKLY_ACTIVE_HOURS = 105.0
 
 -- Model Quota Gearing Ratios (K_m = L_weekly / L_session):
@@ -1989,8 +2055,8 @@ end
 -- fit in a weekly quota (e.g. ~2.5 for Claude & GPT OSS vs ~6.3 for Codex).
 -- Time-arbitrage & perishability: When weekly reset is within active reach (<= 24 active hours),
 -- unspent quota risks permanent loss and receives an urgency multiplier.
--- Collision staggering: When designated as the advance leader, the weekly target pace is
--- compressed to reach 100% in half the cycle (~3.5d / ~45 active hours) to trigger the mid-cycle reset.
+-- Reset credits add their own value/deadline bonus without moving the provider's
+-- weekly horizon or treating credit expiry as expiry of the current allowance.
 function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig, isUserActiveNow)
     if item == nil or M.unavailable(item.entry) then
         return -1000
@@ -2037,29 +2103,13 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         H_w = M.calculateActiveHours(nowTime, wAt, scheduleConfig, isUserActiveNow)
         if H_w < 0.5 then H_w = 0.5 end
 
-        -- If this model belongs to a provider fast-tracking its reset credit (stagger leader,
-        -- or the last cycle in which the credit pays off): burn 100% of the weekly quota in
-        -- half the time (~3.5d / ~45 active hours) to claim the reset mid-cycle and double
-        -- weekly throughput. A cycle too short for the claim to pay is never fast-tracked.
-        local isStaggerLeader = false
-        if staggerPlan and staggerPlan.fastTrack then
-            local baseId = (item.entry and item.entry.id) or item.providerId
-            isStaggerLeader = staggerPlan.fastTrack[baseId] == true
-        end
-
-        local targetH_w = H_w
-        if isStaggerLeader then
-            -- Compressed horizon at half the cycle (minimum 6 active hours)
-            targetH_w = math.min(H_w, math.max(6.0, H_w * 0.50))
-        end
-
         -- Capacity and session duty cycle:
-        -- In targetH_w active hours, max sessions = targetH_w / 5.0, each session burns (100 / gearing)%
-        local C_max = (targetH_w * 20.0) / gearing
+        -- In H_w active hours, max sessions = H_w / 5.0, each session burns (100 / gearing)%
+        local C_max = (H_w * 20.0) / gearing
         dutyCycle = wFree / math.max(1.0, C_max)
 
         -- Required weekly consumption velocity ratio Pi_w relative to nominal active pace:
-        local Pi_w = (wFree / targetH_w) * (M.NOMINAL_WEEKLY_ACTIVE_HOURS / 100.0)
+        local Pi_w = (wFree / H_w) * (M.nominalWeeklyActiveHours(scheduleConfig) / 100.0)
         local defaultGearing = M.DEFAULT_GEARING["default"] or 10.0
         local gearedPi_w = Pi_w * ((gearing / defaultGearing) ^ 0.60)
 
@@ -2068,10 +2118,10 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         local lowHeadroomPct = math.min(30.0, math.max(8.0, oneSessionPct * 0.80))
 
         -- Temporal distribution & anti-burst smoothing (prevents concentration of usage followed by voids):
-        -- When there are still many active hours left in the week (H_w > 24.0) and not fast-tracking:
+        -- When there are still many active hours left in the week (H_w > 24.0):
         -- Evaluate pacing relative to elapsed time in the 7-day cycle.
         local paceSmooth = 1.0
-        if H_w > 24.0 and not isStaggerLeader and wMetric.window_secs then
+        if H_w > 24.0 and wMetric.window_secs then
             local wWindow = tonumber(wMetric.window_secs) or 604800
             local wRemSecs = (wAt and wAt > nowTime) and (wAt - nowTime) or 0
             local wElapsedRatio = math.min(1.0, math.max(0.0, (wWindow - wRemSecs) / wWindow))
@@ -2086,18 +2136,17 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             end
         end
 
-        if wFree <= lowHeadroomPct and H_w > 24.0 and not isStaggerLeader then
+        if wFree <= lowHeadroomPct and H_w > 24.0 then
             wFactor = (0.08 + 0.15 * (wFree / lowHeadroomPct)) * paceSmooth
         else
             -- Continuous weighting function: smooth scaling modulated by temporal pacing
-            local maxWeight = isStaggerLeader and 2.20 or 1.80
-            wFactor = math.min(maxWeight, math.max(0.20, (0.40 + 0.60 * gearedPi_w) * paceSmooth))
+            wFactor = math.min(1.80, math.max(0.20, (0.40 + 0.60 * gearedPi_w) * paceSmooth))
         end
 
         -- Time-arbitrage and perishability urgency for imminent weekly reset (<= 24 active hours):
         -- Reflects that quotas expire permanently if not consumed.
-        -- When active hours <= 24h (or targetH_w <= 24h for fast-track leaders), remaining 5h sessions are scarce.
-        local sprintH = isStaggerLeader and targetH_w or H_w
+        -- When active hours <= 24h, remaining 5h sessions are scarce.
+        local sprintH = H_w
         if sprintH <= 24.0 and wFree > 0.5 then
             local ratio = math.min(8.0, (24.0 / math.max(0.5, sprintH)) ^ 1.25)
             local sprintBonus = sprintH <= 3.0 and (220.0 * (3.0 - sprintH) / 3.0) or 0.0
@@ -2153,6 +2202,12 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         score = (wFree * wFactor) + uResetWeekly + uBottleneck
     end
 
+    local providerId = (item.entry and item.entry.id) or item.providerId
+    if staggerPlan and staggerPlan.fastTrack and staggerPlan.fastTrack[providerId] then
+        local advice = staggerPlan.creditAdvice and staggerPlan.creditAdvice[providerId]
+        local urgency = M.resetCreditUrgency(item, advice, nowTime, scheduleConfig, isUserActiveNow)
+        if urgency then score = score + urgency.bonus end
+    end
     return score
 end
 

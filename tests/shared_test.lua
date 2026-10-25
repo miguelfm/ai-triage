@@ -505,7 +505,7 @@ local cfg = {
 local monMorning = os.time({ year = 2026, month = 10, day = 12, hour = 8, min = 0, sec = 0 })
 local tueMorning = os.time({ year = 2026, month = 10, day = 13, hour = 8, min = 0, sec = 0 })
 local active24h = shared.calculateActiveHours(monMorning, tueMorning, cfg, true)
-assert(math.abs(active24h - 15.15) < 0.6,
+assert(math.abs(active24h - 15.0) < 0.000001,
     string.format("active hours in 24h should discount sleep and meal pause, got %f", active24h))
 
 -- Out-of-schedule awake burst within weekend sleep window (01:00 to 09:00):

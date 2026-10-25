@@ -4,6 +4,17 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
+**Version 1.7.3 uses real credit deadlines and configurable daily availability.**
+Reset-credit priority follows the actual expiry, remaining work to reach 95% and
+estimated refill value, with a one-hour availability margin. The weekly reset
+keeps its own horizon. Fast-track tooltips show needed and available time.
+Sleep boundaries accept half-hour steps such as `8.5` for 08:30. Additional daily
+unavailable time is spread across waking hours without inventing meal or break
+times. Weekly forecasts and sustainable pacing use the configured availability;
+exceptional use during off-hours still receives a limited two-hour awake burst.
+See the [availability and credit-deadline audit](docs/ai_usagebar_compatibility.md#availability-and-reset-credit-deadlines-in-173)
+for behavior, limits and regression coverage.
+
 **Version 1.7.2 adds visible reset-change notices and permanent event logs.**
 Unexpected weekly changes show their previous and current announced dates at the
 bottom of Resets & Credits for 24 hours after detection. Each event is archived for later analysis, including
@@ -68,7 +79,7 @@ Install the respective CLI for any backend provider you wish to prime.
 - **Weekly Cycles Schedule & Imminent Renewal Alerts (Column 3)**: Disambiguates automatic 7-day natural renewal cycles from promotional on-demand reset credits. Column 3 features a dedicated schedule card with strictly aligned tabular layout: countdowns display days and hours (`Xd Yh`) with matching vertical alignment for both `d` and `h` units, followed by the exact reset day and clock time (`HH:MM`) with vertically aligned `:` separators across all rows. High-visibility alert cards appear whenever a weekly quota is expiring within $\le 48\text{h}$ with unused headroom.
 - **Dynamic Upstream Weekly Horizon Alignment**: Accurately tracks rolling and anchor-based 7-day rate limit schedules across manual quota resets and promotional reset credits (e.g. Codex/OpenAI Banked Resets and Instant Resets). When an extra reset pulls the weekly allocation forward, the engine immediately synchronizes to the authentic upstream 7-day horizon, eliminating false sprint panics and ensuring mathematically optimal triage pacing and reliable countdowns.
 - **Weekly Reset Change Notices & Logs**: Unexpected changes show a compact before/after notice for 24 hours at the bottom of Resets & Credits, below urgent alerts, the schedule and reset credits. Date-only changes explicitly leave renewal unconfirmed; scheduled renewals and drifting idle timers do not trigger notices. The last 32 events and per-account/window baselines remain in `weekly-resets.json`; permanent `weekly-reset-event-*.json` files preserve both readings, source, usage and reset-credit counts when available. Archive writes are atomic and failures are queued for retry. Existing saved events are archived on upgrade. Dates always come from the provider; unscheduled renewals cannot be predicted.
-- **Reset Credit Collision & Staggering Engine**: Detects concurrent on-demand reset credit expirations across providers (e.g. Claude and Codex expiring in the same week). Protects against credit forfeiture when a credit expires on the same day as the weekly renewal by enforcing a minimum 3-day runway for deferrals, triggering last-chance sprint burn, and desynchronizing collisions. Recommends claiming a reset (`⭐ Claim Reset`) once the week is spent ($\ge 95\%$) or when nearing expiration peril, with one-click dashboard access.
+- **Reset Credit Collision & Staggering Engine**: Detects concurrent on-demand reset credit expirations across providers and keeps last-chance credits active. A separate, value-weighted incentive uses the real expiry and work remaining to reach 95%, reserving one available hour for claiming and at least one session to use the refill before natural renewal. Current session capacity is respected; exhausted providers stay blocked. Tooltips show needed/available time and identify potentially unreachable targets. Recommends claiming a reset (`⭐ Claim Reset`) once the week is spent ($\ge 95\%$) or when nearing expiration peril, with one-click dashboard access.
 - **Streamlined Triage Panel**: An aligned, three-column ranking view displaying provider identity, dynamic urgency score, real-time status badges, weekly renewal timeline, and credit staggering strategy. The top row is always your optimal routing choice.
 - **Service & Model Visibility Filtering**: Allows hiding specific sub-models or third-party tiers (such as Antigravity's "Claude & GPT OSS") via `hide_claude_oss` or `hidden_services` while retaining full visibility, pacing, and telemetry for other tiers like Gemini, Codex, or Claude Pro across both the status bar capsule and the triage panel. Hidden exhausted tiers are excluded from blocking warnings. When a pinned bar capsule targets a hidden tier or service, the capsule dynamically collapses (`barWidget.setVisible(false)`), reclaiming taskbar space without leaving empty gaps or fallback glyphs.
 - **Provider Identity & Outage Resilience**: Transient outages (such as upstream HTTP 429 Rate Limits or connectivity interruptions) preserve the provider's recognizable icon and identity in error tint rather than falling back to an ambiguous scale icon, presenting actionable diagnostic tooltips on the bar and maintaining dedicated diagnostic cards within the triage panel.
@@ -107,11 +118,11 @@ Plugin-level settings (shared across poller, capsules, and panel):
 | `query_timeout_seconds` | `int` | `180` | *(Advanced)* Maximum wait for a quota report (30 to 600 seconds). Includes all providers and accounts. |
 | `font_scale` | `select` | `"normal"` | Typographic scale preset across panel and bar (`compact` 85%, `normal` 100%, `large` 115%, `huge` 130%). |
 | `schedule_aware_triage` | `bool` | `true` | Pace quota consumption against active working hours (discounting sleep and meals). |
-| `sleep_start_hour` | `int` | `0` | Weekday sleep/off-hours start hour (0 to 23; 0 = midnight). Visible when schedule-aware triage is enabled. |
-| `sleep_end_hour` | `int` | `8` | Weekday wake-up / active hours start hour (0 to 23; 8 = 8 AM). Visible when schedule-aware triage is enabled. |
-| `weekend_sleep_start_hour` | `int` | `1` | Weekend sleep/off-hours start hour (0 to 23; 1 = 1 AM). Visible when schedule-aware triage is enabled. |
-| `weekend_sleep_end_hour` | `int` | `9` | Weekend wake-up / active hours start hour (0 to 23; 9 = 9 AM). Visible when schedule-aware triage is enabled. |
-| `meal_pause_hours` | `int` | `1` | Estimated daily pause hours for lunch/breaks (0 to 3). Visible when schedule-aware triage is enabled. |
+| `sleep_start_hour` | `double` | `0` | Weekday off-hours start (0 to 23.5, half-hour steps). Visible when schedule-aware triage is enabled. |
+| `sleep_end_hour` | `double` | `8` | Weekday active hours resume (0 to 23.5; `8.5` = 08:30). Visible when schedule-aware triage is enabled. |
+| `weekend_sleep_start_hour` | `double` | `1` | Weekend off-hours start (0 to 23.5, half-hour steps). Visible when schedule-aware triage is enabled. |
+| `weekend_sleep_end_hour` | `double` | `9` | Weekend active hours resume (0 to 23.5; `8.5` = 08:30). Visible when schedule-aware triage is enabled. |
+| `meal_pause_hours` | `double` | `1` | Other daily unavailable hours for meals, breaks or tasks (0 to 24, half-hour steps), spread proportionally across waking hours without fixed break times. Visible when schedule-aware triage is enabled. |
 | `hide_claude_oss` | `bool` | `false` | Hides the Claude & GPT OSS tier from Antigravity in both the bar and panel, keeping Gemini active. |
 | `hidden_services` | `string` | `""` | *(Advanced)* Comma-separated list of provider or model IDs to hide from both bar and panel (e.g. `claude-oss, moonshot`). |
 | `gearing_claude_oss` | `double` | `2.5` | *(Advanced)* Sessions per week for Claude & GPT OSS (1 session burns ~40% weekly quota). Calibrated dynamically by telemetry. |
