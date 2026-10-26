@@ -6,6 +6,8 @@ observations and confirmation behavior described below.
 Version **1.7.2** adds a visible 24-hour notice and permanent event archives.
 Version **1.7.3** adds half-hour availability budgets and credit-expiry scoring
 separate from ordinary weekly urgency, with deadline/capacity regression coverage.
+Version **1.7.4** suppresses false early-renewal notices when rolling 7-day windows
+(such as OpenAI Codex) clear usage or wake up idle at 0% with unanchored `now + 7d` deadlines.
 
 Checked on 2026-10-23 against the latest published release,
 [v1.43.0](https://github.com/akitaonrails/ai-usagebar/releases/tag/v1.43.0),
@@ -74,6 +76,17 @@ These forecasts assume the model's nominal session consumption pace. They are
 capacity estimates, not guaranteed throughput, and do not predict provider
 schedule changes. See the [mathematical model](mathematical_model.md#22-value-of-a-claim)
 for the credit bonus formula and limits.
+
+## Rolling window wake-up and floating resets in 1.7.4
+
+Rolling 7-day providers (e.g. OpenAI Codex, Antigravity) that reset to `now + window`
+when idle previously triggered an `early_renewal` notice if usage transitioned from
+active (>0%) to 0% (such as overnight or after an idle period), because the `floating`
+suppression rule previously required both `percent == 0` and `previous.percent == 0`.
+Version 1.7.4 recognizes any 0% reading where the reset deadline aligns with the full
+window (`math.abs(reset - at - window) <= 60`) without spent reset credits as a floating
+idle reset. This prevents daily false-positive alert banners and tooltip change notes
+on startup while preserving genuine credit redemptions and scheduled renewals.
 
 ## Weekly renewal observations and change notices in 1.7.2
 

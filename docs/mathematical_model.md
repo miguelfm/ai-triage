@@ -347,6 +347,10 @@ deadline, it is recorded as early. A date shift of at least one hour without tha
 usage evidence, or across different sources, is only a schedule change. A lower
 credit count is recorded as supporting evidence, without asserting a manual
 claim. Cached, failed and out-of-order readings cannot replace valid baselines.
+Waking up or clearing usage to 0% with an unanchored deadline aligned to the full window
+($|R - t_{\text{now}} - T_w| \le 60\text{s}$) in the absence of spent credits is
+classified as a floating idle timer rather than an early renewal, suppressing
+false-positive notices.
 
 The existing weekly clock and schedule row expose source, reading time and recent
 changes in tooltips; change explanations disappear after 24 hours. An expired or

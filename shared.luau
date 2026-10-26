@@ -1938,6 +1938,13 @@ function M.trackWeeklyResets(report, history, nowTime, changes)
                             end
                             if kind then
                                 local window = tonumber(metric.window_secs) or 604800
+                                local fewer_credits = credits ~= nil and tonumber(previous.credits) ~= nil
+                                    and credits < tonumber(previous.credits) or false
+                                local isFloating = (percent == 0 and math.abs(reset - at - window) <= 60 and not fewer_credits)
+                                    or (percent == 0 and previous.percent == 0
+                                        and tonumber(previous.at) ~= nil
+                                        and math.abs(reset - at - window) <= 60
+                                        and math.abs(oldReset - previous.at - window) <= 60)
                                 event = { kind = kind, at = at, detected_at = now,
                                     previous_at = previous.at, previous_reset_at = oldReset, reset_at = reset,
                                     previous_reset_at_raw = previous.reset_at_raw, reset_at_raw = metric.reset_at,
@@ -1947,12 +1954,8 @@ function M.trackWeeklyResets(report, history, nowTime, changes)
                                     previous_credits = previous.credits, credits = credits,
                                     expected = kind == "renewal" or (at >= oldReset - 60
                                         and math.abs(reset - oldReset - window) <= 300),
-                                    floating = percent == 0 and previous.percent == 0
-                                        and tonumber(previous.at) ~= nil
-                                        and math.abs(reset - at - window) <= 60
-                                        and math.abs(oldReset - previous.at - window) <= 60,
-                                    fewer_credits = credits ~= nil and tonumber(previous.credits) ~= nil
-                                        and credits < tonumber(previous.credits) or false }
+                                    floating = isFloating,
+                                    fewer_credits = fewer_credits }
                                 local record = { provider = entry.id, window = key, change = event }
                                 history.events[#history.events + 1] = record
                                 changes[#changes + 1] = record
@@ -2034,7 +2037,7 @@ function M.weeklyResetTooltip(metric, entry, nowTime)
         -- Keep the full history on disk; only explain a recent change on hover.
         local detected = type(event) == "table" and (tonumber(event.detected_at) or tonumber(event.at))
         local age = detected and (nowTime or os.time()) - detected
-        if age and age >= 0 and age < 86400 then
+        if age and age >= 0 and age < 86400 and not event.floating then
             local descriptions = { early_renewal = "Early renewal detected", renewal = "Renewal detected",
                 schedule_changed = "Schedule changed; renewal not confirmed" }
             lines[#lines + 1] = (descriptions[event.kind] or "Schedule changed") .. " at " .. date(event.at) .. "."

@@ -4,6 +4,12 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
+**Version 1.7.4 suppresses false early-renewal notices on idle rolling windows.**
+Rolling 7-day quotas (such as OpenAI Codex) that wake up at 0% usage with an unanchored
+deadline (`now + 7d`) are correctly identified as floating idle windows rather than
+unexpected early renewals, preventing daily false-positive alert banners and tooltip
+notices when starting fresh sessions without spent reset credits.
+
 **Version 1.7.3 uses real credit deadlines and configurable daily availability.**
 Reset-credit priority follows the actual expiry, remaining work to reach 95% and
 estimated refill value, with a one-hour availability margin. The weekly reset

@@ -101,6 +101,15 @@ local idleLater = entry(now + 7200, now + 7200 + 604800, 0)
 local idleHistory = track(idleLater, track(idle))
 assert(idleHistory.events[1].change.floating
     and shared.weeklyResetChange(idleLater.metrics[1], now + 7200) == nil)
+local activeBefore = entry(now, oldReset, 30)
+local wakeup0 = entry(today, today + 604800, 0)
+local wakeupHistory = track(wakeup0, track(activeBefore), today)
+assert(#wakeupHistory.events == 1 and wakeupHistory.events[1].change.floating == true,
+    "active usage dropping to 0% with a now+7d deadline must be treated as a floating idle timer")
+assert(shared.weeklyResetChange(wakeup0.metrics[1], today) == nil,
+    "floating wake-up at 0% must not trigger an unexpected-change notice")
+assert(not shared.weeklyResetTooltip(wakeup0.metrics[1], wakeup0, today):find("Early renewal detected", 1, true),
+    "floating wake-up at 0% must not show early renewal in tooltip")
 local staleFreshFlag = entry(today, newReset, 0)
 local staleHistory = track(staleFreshFlag, track(before), today + 3600)
 assert(#staleHistory.events == 0, "an old timestamp cannot acquire a new detection time even if stale=false")
