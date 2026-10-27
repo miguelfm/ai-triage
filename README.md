@@ -1,5 +1,7 @@
 # AI Triage
 
+[Noctalia 5.4 integration and limits](docs/noctalia-5.4.md).
+
 AI Triage is an intelligent AI quota monitoring, smart routing, and rolling session triage plugin for the Noctalia Wayland shell.
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
@@ -56,6 +58,9 @@ connections.
 
 Compatibility checked against **ai-usagebar 1.43.0**, using its version 1 JSON
 contract. All 30 built-in providers are available in the capsule selector.
+The local 1.44.0 CLI now lists 31 providers: Droid is not yet in the selector.
+The catalog guard correctly fails until that update is reviewed; the twelve
+Lua suites still pass. See the [5.4 integration review](docs/noctalia-5.4.md#verification-and-sources).
 The poller also requires coreutils `timeout`: quota reads may take up to three
 minutes by default, allowing Antigravity's 90-second cold startup. Increase the
 advanced query timeout for many accounts. See the [compatibility audit](docs/ai_usagebar_compatibility.md)
