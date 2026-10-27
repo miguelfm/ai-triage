@@ -4,7 +4,7 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
-**Version 1.7.5 adapts to Noctalia 5.4 with calibrated panel geometry and Material 3 palettes.**
+**Version 1.8.0 adapts to Noctalia 5.4 with calibrated panel geometry and Material 3 palettes.**
 The triage panel adopts `height = "content"` with a calibrated 560px maximum height,
 eliminating vertical empty space for typical 1–4 provider configurations while preserving
 independent per-column scrolling for extended lists, alongside updated `surface_container`
