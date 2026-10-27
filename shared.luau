@@ -1,7 +1,7 @@
 --!nonstrict
 -- What the capsule and the panel both need, in one copy, so the parsing and the
--- severity tiers cannot drift between two entries that agree on screen. Needs
--- plugin_api 22, where require() arrived.
+-- severity tiers cannot drift between two entries that agree on screen.
+-- Relative require() arrived in API 22; the plugin manifest requires API 43.
 
 local M = {}
 

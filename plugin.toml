@@ -1,7 +1,7 @@
 id = "miguelfm/ai-triage"
 name = "AI Triage"
-version = "1.7.4"
-plugin_api = 22
+version = "1.7.5"
+plugin_api = 43
 author = "miguelfm"
 license = "MIT"
 icon = "scale"
@@ -361,10 +361,10 @@ options = [
 [[panel]]
 id = "panel"
 entry = "panel.luau"
-# Provider tabs at the top, detailed charts and accessory cards below.
-# Scaled to 780px to accommodate all cards comfortably under huge typography presets.
+# Fit standard reports and empty/error states; longer columns scroll independently.
 width = 1520
-height = 780
+height = "content"
+max_height = 560
 # The shell draws the Placement and Position rows for every plugin panel whether
 # or not they are declared; declaring them only picks the default the user gets.
 placement = "attached"
