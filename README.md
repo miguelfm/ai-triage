@@ -6,6 +6,11 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
+**Version 1.8.1 adds Factory Droid to the provider selector.**
+All 31 ai-usagebar 1.44 providers have translated selector labels, glyphs and
+dashboard links. Droid uses the existing quota-report contract; panel geometry
+is unchanged. See the [compatibility audit](docs/ai_usagebar_compatibility.md#factory-droid-and-the-144-catalog-in-181).
+
 **Version 1.8.0 adapts to Noctalia 5.4 with calibrated panel geometry and Material 3 palettes.**
 The triage panel adopts `height = "content"` with a calibrated 560px maximum height,
 eliminating vertical empty space for typical 1–4 provider configurations while preserving
@@ -56,11 +61,11 @@ tarballs on the project's GitHub Releases page. Configure your providers once in
 `~/.config/ai-usagebar/config.toml`; the CLI manages credentials and provider
 connections.
 
-Compatibility checked against **ai-usagebar 1.43.0**, using its version 1 JSON
-contract. All 30 built-in providers are available in the capsule selector.
-The local 1.44.0 CLI now lists 31 providers: Droid is not yet in the selector.
-The catalog guard correctly fails until that update is reviewed; the twelve
-Lua suites still pass. See the [5.4 integration review](docs/noctalia-5.4.md#verification-and-sources).
+Compatibility checked against **ai-usagebar 1.44.0**, using its version 1 JSON
+contract. All 31 built-in providers are available in the capsule selector.
+Factory Droid requires an existing official Droid CLI login on Linux and
+`[droid] enabled = true` in the ai-usagebar config. Selecting its capsule does
+not enable the provider or create a login.
 The poller also requires coreutils `timeout`: quota reads may take up to three
 minutes by default, allowing Antigravity's 90-second cold startup. Increase the
 advanced query timeout for many accounts. See the [compatibility audit](docs/ai_usagebar_compatibility.md)

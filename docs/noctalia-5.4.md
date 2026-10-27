@@ -1,6 +1,6 @@
 # Noctalia 5.4 integration
 
-Reviewed on 2026-10-27: AI Triage 1.8.0, plugin_api = 43, installed Noctalia 5.4.0.
+Reviewed on 2026-10-27: AI Triage 1.8.1, plugin_api = 43, installed Noctalia 5.4.0.
 Miguel confirmed that the previous agent's resizing correction works. This
 review changes documentation only; panel geometry and runtime behavior stay as
 accepted by the user.
@@ -38,16 +38,23 @@ A compatible plugin does not need to adopt every new API.
 ## Verification and sources
 
 Both noctalia plugins lint and noctalia config validate passed. The running
-shell lists 1.8.0 as an enabled local plugin. Its symlink points to this checkout;
+shell lists 1.8.1 as an enabled local plugin. Its symlink points to this checkout;
 shared dotfiles reference the plugin without copying its source into their repos.
 All twelve tests/*_test.lua suites passed with TZ=America/New_York. Mocked UI
 tests validate widget trees and behavior, not actual Wayland pixel geometry.
 
-The Python catalog guard found ai-usagebar 1.44.0 with 31 providers. Droid (id
-droid) is new relative to the 1.43 fixture's 30 providers and is missing from
-the selector. Reviewing that dependency and its labels remains pending. The
-guard was not weakened, and full 1.44 compatibility is not claimed. This is
-independent of the Noctalia 5.4 migration; no real quota request was made.
+The catalog mismatch found in the initial review was fixed in 1.8.1. The
+selector, three translated catalogs, glyph/dashboard mappings and recorded
+1.44 catalog now include Droid; the strict guard covers all 31 provider IDs.
+Regressions cover pinning Droid alongside another provider, Standard 5h/weekly
+quotas, monthly/Core supplementary data and the poller-to-bar/panel path.
+The original twelve suites and both additional timezone checks pass.
+
+Droid is not configured on this machine, so its rendering was checked with
+synthetic schema-1 reports, not an authenticated Factory quota response. The
+shared report remains focused on short/weekly triage rather than implementing
+every provider-specific monthly/Core view. See the
+[compatibility audit](ai_usagebar_compatibility.md#factory-droid-and-the-144-catalog-in-181).
 
 Official references:
 
