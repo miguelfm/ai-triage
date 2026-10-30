@@ -1,9 +1,9 @@
 # Noctalia 5.4 integration
 
-Reviewed on 2026-10-27: AI Triage 1.8.1, plugin_api = 43, installed Noctalia 5.4.0.
-Miguel confirmed that the previous agent's resizing correction works. This
-review changes documentation only; panel geometry and runtime behavior stay as
-accepted by the user.
+Reviewed on 2026-10-30: AI Triage 1.8.2, plugin_api = 43, installed Noctalia 5.4.0.
+Version 1.8.2 auto-resolves bundled session priming (`bin/ai-kickstart`) via
+`noctalia.pluginDir()` with fallback to `PATH`. Panel geometry and runtime
+contract remain unchanged.
 
 ## Panel contract
 
