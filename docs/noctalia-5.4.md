@@ -1,9 +1,8 @@
 # Noctalia 5.4 integration
 
-Reviewed on 2026-10-30: AI Triage 1.8.2, plugin_api = 43, installed Noctalia 5.4.0.
-Version 1.8.2 auto-resolves bundled session priming (`bin/ai-kickstart`) via
-`noctalia.pluginDir()` with fallback to `PATH`. Panel geometry and runtime
-contract remain unchanged.
+Reviewed on 2026-10-31: AI Triage 1.8.3, plugin_api = 43, installed Noctalia 5.4.0.
+Version 1.8.3 adds DeepRelay and validates full compatibility against ai-usagebar 1.47.0.
+Panel geometry and runtime contract remain unchanged.
 
 ## Panel contract
 

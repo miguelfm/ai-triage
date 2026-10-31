@@ -19,6 +19,19 @@ rate-limit backoff. The plugin consumes the report without modifying credentials
 See upstream's [report projection](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/report.rs)
 and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/antigravity/agy.rs).
 
+## DeepRelay and the 1.47 catalog in 1.8.3
+
+Reviewed 2026-10-31 with installed ai-usagebar 1.47.0 and Noctalia 5.4.0.
+DeepRelay (`deeprelay`) is the sole added provider relative to the recorded 1.44 catalog.
+The selector and all three shipped translations now include it, with a `route`
+glyph, an API key classification in `API_KEY_PROVIDERS`, and a [DeepRelay Dashboard](https://deeprelay.ai/cloud/api-keys)
+link. The 1.47 fixture records the 32 built-in IDs/names; the strict mismatch check remains
+in place for future additions/removals. The 1.43 and 1.44 fixtures stay as historical evidence.
+
+The CLI continues to own DeepRelay authentication (`DEEPRELAY_API_KEY` or config file) and data access.
+Choosing a capsule does not enable it. Upstream's optional `--priorities` flag in 1.47.0 does not affect
+standard `usage --json` output.
+
 ## Factory Droid and the 1.44 catalog in 1.8.1
 
 Reviewed 2026-10-27 with installed ai-usagebar 1.44.0 and Noctalia 5.4.0.

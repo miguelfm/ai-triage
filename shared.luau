@@ -52,6 +52,7 @@ local PROVIDER_GLYPHS = {
     ["muse-code"] = "brand-meta",
     ["cline"] = "terminal-2",
     droid = "robot",
+    deeprelay = "route",
     gemini = "brand-google",
     ["claude-oss"] = "robot",
     ["claude_oss"] = "robot",
@@ -80,6 +81,7 @@ local PROVIDER_DASHBOARDS = {
     ["muse-code"] = "https://dev.meta.ai/docs/muse-code",
     ["cline"] = "https://app.cline.bot/",
     droid = "https://app.factory.ai/",
+    deeprelay = "https://deeprelay.ai/cloud/api-keys",
     gemini = "https://aistudio.google.com/",
     copilot = "https://github.com/settings/copilot",
     minimax = "https://platform.minimaxi.com/",
@@ -197,7 +199,7 @@ local API_KEY_PROVIDERS = {
     anthropic_api = true, zai = true, openrouter = true, deepseek = true,
     deepinfra = true, kilo = true, novita = true, synthetic = true,
     moonshot = true, grok = true, minimax = true, ["opencode-go"] = true,
-    ollama = true, orcarouter = true, lyceum = true,
+    ollama = true, orcarouter = true, lyceum = true, deeprelay = true,
 }
 
 function M.diagnostic(entry)
@@ -281,24 +283,22 @@ function M.asFailure(value)
     }
 end
 
--- "2026-08-15T11:29:59.872624Z" -> unix seconds. The stamps are UTC and
--- os.time() reads its table as local, so the offset is measured at that same
--- instant and added back.
+local function daysFromCivil(y, m, d)
+    if m <= 2 then y = y - 1; m = m + 9 else m = m - 3 end
+    local era = math.floor((y >= 0 and y or y - 399) / 400)
+    local yoe = y - era * 400
+    local doy = math.floor((153 * m + 2) / 5) + d - 1
+    local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+    return era * 146097 + doe - 719468
+end
+
+-- "2026-08-15T11:29:59.872624Z" -> unix seconds (UTC).
 function M.parseIso(value)
     if type(value) ~= "string" then return nil end
     local y, mo, d, h, mi, s = value:match("^(%d+)%-(%d+)%-(%d+)T(%d+):(%d+):(%d+)")
     if y == nil then return nil end
-    local asLocal = os.time({
-        year = tonumber(y), month = tonumber(mo), day = tonumber(d),
-        hour = tonumber(h), min = tonumber(mi), sec = tonumber(s),
-    })
-    local utc = os.date("!*t", asLocal)
-    -- Let os.time resolve DST for these wall-clock fields. os.date marks a UTC
-    -- table as standard time, which is wrong when the same fields fall in the
-    -- local timezone's daylight-saving season.
-    utc.isdst = nil
-    local utcAsLocal = os.time(utc)
-    return asLocal + (asLocal - utcAsLocal)
+    return daysFromCivil(tonumber(y), tonumber(mo), tonumber(d)) * 86400
+        + tonumber(h) * 3600 + tonumber(mi) * 60 + tonumber(s)
 end
 
 local function formatDuration(seconds)

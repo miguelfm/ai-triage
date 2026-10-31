@@ -134,6 +134,8 @@ local droid = { id = "droid", name = "Droid", display_name = "Droid", status = "
 h = host({ schema_version = 1, entries = { partial.entries[1], droid } }, { vendor = "droid" })
 assert(h.shared.providerGlyph("droid") == "robot", "Droid needs a provider glyph")
 assert(h.shared.providerDashboard("droid") == "https://app.factory.ai/", "Droid opens Factory")
+assert(h.shared.providerGlyph("deeprelay") == "route", "DeepRelay needs a provider glyph")
+assert(h.shared.providerDashboard("deeprelay") == "https://deeprelay.ai/cloud/api-keys", "DeepRelay opens dashboard")
 h.load("bar.luau")
 assert(h.tooltip()[1].key == "Droid" and h.tooltip()[1].value == "20% / 40%",
     "a pinned Droid capsule must show its Standard 5h/weekly quotas")
@@ -244,4 +246,4 @@ if arg[1] then
         assert(h.bar() and h.tree() and #h.tooltip() > 0, "CLI entries must render in both surfaces")
     end
 end
-io.write("ok: 1.44 contract, Droid selection/rendering, partial quotas, amounts, accounts, reset inventories, timeout and diagnostics\n")
+io.write("ok: 1.47 contract, Droid/DeepRelay selection/rendering, partial quotas, amounts, accounts, reset inventories, timeout and diagnostics\n")

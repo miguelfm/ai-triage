@@ -6,6 +6,11 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
+**Version 1.8.3 adds DeepRelay and validates ai-usagebar 1.47 compatibility.**
+All 32 ai-usagebar 1.47 providers have translated selector labels, glyphs and
+dashboard links. DeepRelay uses the existing quota-report contract; panel geometry
+is unchanged. See the [compatibility audit](docs/ai_usagebar_compatibility.md#deeprelay-and-the-147-catalog-in-183).
+
 **Version 1.8.2 auto-resolves bundled session priming via `noctalia.pluginDir()`.**
 The rolling window kickstart feature (`[⚡ Start 5h]`) automatically executes the bundled
 `bin/ai-kickstart` helper directly from the plugin's install directory, with fallback to
@@ -66,8 +71,8 @@ tarballs on the project's GitHub Releases page. Configure your providers once in
 `~/.config/ai-usagebar/config.toml`; the CLI manages credentials and provider
 connections.
 
-Compatibility checked against **ai-usagebar 1.44.0**, using its version 1 JSON
-contract. All 31 built-in providers are available in the capsule selector.
+Compatibility checked against **ai-usagebar 1.47.0**, using its version 1 JSON
+contract. All 32 built-in providers are available in the capsule selector.
 Factory Droid requires an existing official Droid CLI login on Linux and
 `[droid] enabled = true` in the ai-usagebar config. Selecting its capsule does
 not enable the provider or create a login.
