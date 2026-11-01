@@ -14,6 +14,9 @@ import tempfile
 import tomllib
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 def lua(value):
     if value is None:
         return "nil"
@@ -36,7 +39,8 @@ def cli(*args):
 
 def check_query_process(env):
     command = subprocess.check_output(
-        ["lua", "tests/compatibility_test.lua", "--query-command"], text=True, env=env)
+        ["lua", str(REPO_ROOT / "tests/compatibility_test.lua"), "--query-command"],
+        text=True, env=env, cwd=REPO_ROOT)
     with tempfile.TemporaryDirectory(prefix="ai-triage-process-") as directory:
         fake = Path(directory) / "ai-usagebar"
         fake.write_text("#!/usr/bin/env python3\nimport os,time\n"
@@ -57,15 +61,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--live", action="store_true")
     args = parser.parse_args()
-    manifest = tomllib.loads(Path("plugin.toml").read_text())
+    manifest = tomllib.loads((REPO_ROOT / "plugin.toml").read_text())
     offered = next(s for widget in manifest["widget"] for s in widget.get("setting", [])
                    if s["key"] == "vendor")["options"]
     catalog = json.loads(cli("vendors", "--json"))["vendors"]
-    expected = json.loads(Path("tests/fixtures/ai_usagebar_1_47_catalog.json").read_text())
+    expected = json.loads((REPO_ROOT / "tests/fixtures/ai_usagebar_1_47_catalog.json").read_text())
     ids = {entry["id"] for entry in catalog}
     assert ids == {entry["id"] for entry in expected}, "CLI provider catalog changed: review compatibility"
     assert ids <= {option["value"] for option in offered}, "provider selector misses CLI providers"
-    for path in Path("translations").glob("*.json"):
+    for path in (REPO_ROOT / "translations").glob("*.json"):
         translations = json.loads(path.read_text())
         for option in offered:
             node = translations
@@ -73,14 +77,14 @@ def main():
                 node = node.get(key, {})
             assert isinstance(node, str), f"missing {path}: {option['label_key']}"
         diagnostic = translations["ui"]["diagnostic"]
-        english = json.loads(Path("translations/en.json").read_text())["ui"]["diagnostic"]
+        english = json.loads((REPO_ROOT / "translations/en.json").read_text())["ui"]["diagnostic"]
         for group in ["cause", "action"]:
             assert diagnostic[group].keys() == english[group].keys(), f"incomplete {path}: diagnostic {group}"
             for key, message in diagnostic[group].items():
                 assert set(re.findall(r"{(\w+)}", message)) == set(re.findall(r"{(\w+)}", english[group][key])), \
                     f"incorrect diagnostic placeholders: {path} {key}"
     print(f"ok: {cli('--version').strip()}, {len(ids)} providers selectable; translations complete", flush=True)
-    command = ["lua", "tests/compatibility_test.lua"]
+    command = ["lua", str(REPO_ROOT / "tests/compatibility_test.lua")]
     env = {**os.environ, "TZ": "America/New_York"}
     check_query_process(env)
     if args.live:
@@ -90,11 +94,11 @@ def main():
             path = Path(directory) / "report.lua"
             path.write_text("return " + lua(report))
             path.chmod(0o600)
-            subprocess.run(command + [str(path)], check=True, env=env)
+            subprocess.run(command + [str(path)], check=True, env=env, cwd=REPO_ROOT)
         for entry in report["entries"]:
             print(f"live: {entry['id']} status={entry['status']} stale={entry['stale']}")
     else:
-        subprocess.run(command, check=True, env=env)
+        subprocess.run(command, check=True, env=env, cwd=REPO_ROOT)
 
 
 if __name__ == "__main__":
