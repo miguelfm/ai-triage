@@ -10,7 +10,7 @@ Panel geometry and runtime contract remain unchanged.
 | --- | --- |
 | width | 1520 |
 | height | "content" |
-| max_height | 880 |
+| max_height | 675 |
 | placement / position | attached / auto |
 | open_near_click | true |
 
@@ -22,7 +22,7 @@ configurations with 3–5 models and reset credit schedules under the Huge (130%
 typography scale preset to render without triggering vertical scrollbars.
 
 The three columns retain independent native scrolling (`ui.scroll`) as a safe
-fallback for extended provider lists that exceed the 880px ceiling.
+fallback for extended provider lists that exceed the 675px ceiling.
 
 ## Colors and API compatibility
 
