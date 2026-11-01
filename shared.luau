@@ -1185,7 +1185,7 @@ function M.resetCreditUrgency(item, advice, nowTime, config, isUserActiveNow)
     local gain = math.min(100, math.max(0, tonumber(advice.cycleGain) or 0))
     if not expiresAt or expiresAt <= now or not renewAt or gain <= 0 then return nil end
 
-    local gearing = M.getModelGearing(item.providerId or (item.entry and item.entry.id), item.name)
+    local gearing = M.getModelGearing(item.providerId or (item.entry and item.entry.id), item.name, item)
     local percent = tonumber(item.weeklyMetric.percent) or 0
     local toSpend = math.max(0, M.CLAIM_MIN_WEEKLY_PCT - percent)
     local needed = toSpend * gearing / 20.0
@@ -1777,6 +1777,26 @@ function M.modelTelemetryKey(providerId, modelName)
     return pid ~= "" and pid or "default"
 end
 
+-- Determines if a 5h rolling session window spans/straddles across a weekly reset boundary.
+-- Intervals spanning session or weekly resets must be excluded from empirical calibration
+-- because usage is split between the prior cycle and the new cycle.
+function M.isSessionStraddlingWeeklyReset(item)
+    if type(item) ~= "table" then return false end
+    local sMetric = item.sessionMetric
+    local wMetric = item.weeklyMetric
+    if type(sMetric) ~= "table" or type(wMetric) ~= "table" then return false end
+    local sAt = M.parseIso(sMetric.reset_at)
+    local wAt = M.parseIso(wMetric.reset_at)
+    local sWindow = tonumber(sMetric.window_secs) or 18000
+    local wWindow = tonumber(wMetric.window_secs) or 604800
+    if sAt and wAt and sWindow > 0 and wWindow > 0 then
+        local sStart = sAt - sWindow
+        local wStart = wAt - wWindow
+        return sStart < wStart and sAt > wStart
+    end
+    return false
+end
+
 -- Record a telemetry sample from an item with both 5h session and 7d weekly metrics.
 -- When quota is consumed during an active session, computes empirical gearing:
 -- K_obs = Delta Session % / Delta Weekly %
@@ -1794,6 +1814,7 @@ function M.recordTelemetrySample(item)
     local key = M.modelTelemetryKey(item.providerId or (item.entry and item.entry.id), item.name)
     local sReset = tostring(sMetric.reset_at or "")
     local wReset = tostring(wMetric.reset_at or "")
+    local isStraddling = M.isSessionStraddlingWeeklyReset(item)
 
     local telemetry = M.telemetryBaselines
     if type(noctalia) == "table" and type(noctalia.state) == "table" and type(noctalia.state.get) == "function" then
@@ -1810,6 +1831,7 @@ function M.recordTelemetrySample(item)
             w_reset = wReset,
             k_calibrated = nil,
             obs_samples = 0,
+            straddling_reset = isStraddling or nil,
         }
         telemetry[key] = rec
     else
@@ -1818,12 +1840,25 @@ function M.recordTelemetrySample(item)
         local sessionDropped = (rec.s_base > 25 and sPct <= 5)
         local weekReset = (wReset ~= "" and rec.w_reset ~= "" and wReset ~= rec.w_reset)
 
-        if resetChanged or sessionDropped or weekReset then
+        if resetChanged or sessionDropped then
             rec.s_base = sPct
             rec.w_base = wPct
             rec.s_reset = sReset
             rec.w_reset = wReset
+            rec.straddling_reset = isStraddling or nil
+        elseif weekReset or isStraddling then
+            rec.s_base = sPct
+            rec.w_base = wPct
+            rec.s_reset = sReset
+            rec.w_reset = wReset
+            rec.straddling_reset = true
+            -- Discard any calibration derived during this straddling session window
+            if rec.last_sample_s_reset == sReset then
+                rec.k_calibrated = nil
+                rec.obs_samples = 0
+            end
         else
+            rec.straddling_reset = nil
             if sPct < rec.s_base then
                 rec.s_base = sPct
                 rec.w_base = wPct
@@ -1835,6 +1870,7 @@ function M.recordTelemetrySample(item)
                     local k_sample = dS / dW
                     if k_sample >= 1.5 and k_sample <= 30.0 then
                         rec.obs_samples = (rec.obs_samples or 0) + 1
+                        rec.last_sample_s_reset = sReset
                         if rec.k_calibrated == nil then
                             rec.k_calibrated = math.floor(k_sample * 10 + 0.5) / 10
                         else
@@ -1872,15 +1908,17 @@ function M.getModelGearing(providerId, modelName, item)
         end
     end
 
-    -- 2. Check dynamic empirical telemetry calibration
-    local telemetry = M.telemetryBaselines
-    if type(noctalia) == "table" and type(noctalia.state) == "table" and type(noctalia.state.get) == "function" then
-        local st = noctalia.state.get("gearing_telemetry")
-        if type(st) == "table" then telemetry = st end
-    end
-    local rec = telemetry and telemetry[key]
-    if rec and rec.k_calibrated and rec.k_calibrated > 0 then
-        return rec.k_calibrated, true
+    -- 2. Check dynamic empirical telemetry calibration (inhibited while session straddles a weekly reset)
+    if not (item and M.isSessionStraddlingWeeklyReset(item)) then
+        local telemetry = M.telemetryBaselines
+        if type(noctalia) == "table" and type(noctalia.state) == "table" and type(noctalia.state.get) == "function" then
+            local st = noctalia.state.get("gearing_telemetry")
+            if type(st) == "table" then telemetry = st end
+        end
+        local rec = telemetry and telemetry[key]
+        if rec and rec.k_calibrated and rec.k_calibrated > 0 and not rec.straddling_reset then
+            return rec.k_calibrated, true
+        end
     end
 
     -- 3. Default empirical baseline
@@ -2095,7 +2133,7 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
     ----------------------------------------------------------------------
     -- 1. WEEKLY MATHEMATICAL MODEL (7d): Velocity, Capacity & Gearing
     ----------------------------------------------------------------------
-    local gearing = M.getModelGearing(item.providerId or (item.entry and item.entry.id), item.name)
+    local gearing = M.getModelGearing(item.providerId or (item.entry and item.entry.id), item.name, item)
 
     local wFactor = 1.0
     local uResetWeekly = 0.0

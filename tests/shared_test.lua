@@ -575,6 +575,38 @@ local geminiOverridden, isOverCal = shared.getModelGearing("gemini", "Gemini")
 assert(geminiOverridden == 5.5 and isOverCal == false, "gearing_gemini override via double config should be 5.5")
 noctalia.getConfig = nil
 
+-- Straddling session test: a session starting before weekly reset must NOT calibrate gearing
+local straddlingItem = {
+    providerId = "gemini",
+    name = "Gemini",
+    sessionMetric = { percent = 10, window_secs = 18000, reset_at = "2026-11-01T11:53:39Z" },
+    weeklyMetric = { percent = 0, window_secs = 604800, reset_at = "2026-11-08T09:15:38Z" },
+}
+assert(shared.isSessionStraddlingWeeklyReset(straddlingItem) == true, "session spanning weekly reset must be detected as straddling")
+
+shared.recordTelemetrySample(straddlingItem)
+straddlingItem.sessionMetric.percent = 35 -- delta S = 25%
+straddlingItem.weeklyMetric.percent = 5  -- delta W = 5% (would distort K to 5.0)
+shared.recordTelemetrySample(straddlingItem)
+
+local gStraddle, isCalStraddle = shared.getModelGearing("gemini", "Gemini", straddlingItem)
+assert(isCalStraddle == false, "straddling session must NOT calibrate gearing")
+assert(gStraddle == 8.0, "straddling session must retain baseline gearing (8.0)")
+
+-- Once the 5h session naturally resets into a fresh session entirely within the new week:
+straddlingItem.sessionMetric.percent = 0
+straddlingItem.sessionMetric.reset_at = "2026-11-01T16:53:39Z" -- new 5h window
+assert(shared.isSessionStraddlingWeeklyReset(straddlingItem) == false, "new session inside week must not be straddling")
+
+shared.recordTelemetrySample(straddlingItem)
+straddlingItem.sessionMetric.percent = 64
+straddlingItem.weeklyMetric.percent = 13 -- dS = 64%, dW = 8% -> K = 8.0
+shared.recordTelemetrySample(straddlingItem)
+
+local gFresh, isCalFresh = shared.getModelGearing("gemini", "Gemini", straddlingItem)
+assert(isCalFresh == true, "clean session within same week must calibrate normally")
+assert(gFresh == 8.0, "clean session must calibrate to true ratio 8.0")
+
 -- Midweek comparison:
 -- Codex (K=6.3, 1 full session burns ~15.9% of the week; needs 3.78 sessions for the remaining 60%)
 -- Claude & GPT OSS (K=2.5, 1 session burns 40% of the week; needs only 1.5 sessions to finish remaining 60% weekly quota)

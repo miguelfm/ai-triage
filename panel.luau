@@ -299,7 +299,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
         }
     end
 
-    local gearing = getModelGearing(item and (item.providerId or (item.entry and item.entry.id)), item and item.name) or 10.0
+    local gearing = getModelGearing(item and (item.providerId or (item.entry and item.entry.id)), item and item.name, item) or 10.0
     local oneSessionPct = 100.0 / gearing
     local sessionsNeeded = remainingQuota / oneSessionPct
 
@@ -787,8 +787,11 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
         local gearing, isCalibrated = getModelGearing(item and (item.providerId or (item.entry and item.entry.id)), item and item.name, item)
         if gearing then
             local oneSessionPct = math.floor((100.0 / gearing) + 0.5)
-            local tipText = string.format("Gearing: ~%d full 5h sessions per week (1 session burns ~%d%% weekly quota%s)",
-                math.floor(gearing + 0.5), oneSessionPct, isCalibrated and " · calibrated from observed usage" or "")
+            local isStraddling = shared.isSessionStraddlingWeeklyReset(item)
+            local tipText = string.format("Gearing: ~%d full 5h sessions per week (1 session burns ~%d%% weekly quota%s%s)",
+                math.floor(gearing + 0.5), oneSessionPct,
+                isCalibrated and " · calibrated from observed usage" or "",
+                isStraddling and " · session spans weekly renewal" or "")
             bottomRowElements[#bottomRowElements + 1] = ui.row({
                 gap = 4, align = "center", justify = "center",
                 paddingH = 7,
@@ -847,13 +850,17 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
                 }),
             })
         elseif isStarted then
+            local isStraddling = shared.isSessionStraddlingWeeklyReset(item)
+            local tip = isStraddling
+                and "5-hour rolling session window currently active · spans across weekly renewal"
+                or "5-hour rolling session window currently active"
             bottomRowElements[#bottomRowElements + 1] = ui.row({
                 gap = 4, align = "center", justify = "center",
                 paddingH = 7,
                 paddingV = 2,
                 radius = 5,
                 fill = "primary/0.10",
-                tooltip = "5-hour rolling session window currently active",
+                tooltip = tip,
             }, {
                 ui.glyph({ name = "bolt", size = gs(12), color = "primary" }),
                 ui.label({

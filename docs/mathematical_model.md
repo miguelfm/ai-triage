@@ -80,7 +80,7 @@ Empirically calibrated baseline values across supported providers:
 | `openai` | OpenAI Codex | **6.3** | $15.9\%$ | $6.3$ sessions |
 | *Default* | Custom / Unknown Provider | **10.0** | $10.0\%$ | $10.0$ sessions |
 
-The Codex baseline is estimated from 12 comparable usage intervals on October 1–12, 2026: $\sum \Delta S / \sum \Delta W = 512 / 81 \approx 6.3$. Intervals spanning session or weekly resets are excluded. A full session means consumption of 100% of the 5h quota; reset credits are excluded from this capacity estimate. Rounded percentages and future changes in limits can affect the ratio.
+The Codex baseline is estimated from 12 comparable usage intervals on October 1–12, 2026: $\sum \Delta S / \sum \Delta W = 512 / 81 \approx 6.3$. Intervals spanning session or weekly resets are excluded. Active 5h sessions that straddle a weekly renewal boundary ($t_{\text{session\_start}} < t_{\text{weekly\_start}} < t_{\text{session\_reset}}$) are quarantined: empirical telemetry calibration is inhibited and defaults to baseline gearing until a clean session begins entirely within the new weekly cycle. A full session means consumption of 100% of the 5h quota; reset credits are excluded from this capacity estimate. Rounded percentages and future changes in limits can affect the ratio.
 
 ##### Dynamic Telemetry-Based Gearing Calibration:
 In addition to baseline defaults, `ai-triage` continuously observes real consumption deltas during active sessions:
