@@ -10,18 +10,19 @@ Panel geometry and runtime contract remain unchanged.
 | --- | --- |
 | width | 1520 |
 | height | "content" |
-| max_height | 560 |
+| max_height | 880 |
 | placement / position | attached / auto |
 | open_near_click | true |
 
-Noctalia measures content height and limits it to the declared maximum. This
-does not make the fixed width responsive. Dimensions are logical pixels; the
-physical result depends on scale and available space. The visual confirmation
-covers Miguel's machine, not every resolution, scale or a separate niri session.
+Noctalia measures content height automatically and sizes the panel to fit the
+rendered tree, capped at the declared maximum. Because the layout uses
+`height = "content"`, the panel only takes as much vertical space as the cards
+and headers require, leaving zero empty space for smaller setups while allowing
+configurations with 3–5 models and reset credit schedules under the Huge (130%)
+typography scale preset to render without triggering vertical scrollbars.
 
-The three columns retain independent scrolling for longer lists. Keep the
-accepted maximum of 560; do not restore the initial migration's 780 limit or
-remove internal scrolling merely to shrink the panel.
+The three columns retain independent native scrolling (`ui.scroll`) as a safe
+fallback for extended provider lists that exceed the 880px ceiling.
 
 ## Colors and API compatibility
 

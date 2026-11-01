@@ -363,10 +363,10 @@ options = [
 [[panel]]
 id = "panel"
 entry = "panel.luau"
-# Fit standard reports and empty/error states; longer columns scroll independently.
+# Content-sized panel adapts height automatically to fit cards; longer columns scroll if exceeding max_height.
 width = 1520
 height = "content"
-max_height = 560
+max_height = 880
 # The shell draws the Placement and Position rows for every plugin panel whether
 # or not they are declared; declaring them only picks the default the user gets.
 placement = "attached"

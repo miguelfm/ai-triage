@@ -22,7 +22,7 @@ dashboard links. Droid uses the existing quota-report contract; panel geometry
 is unchanged. See the [compatibility audit](docs/ai_usagebar_compatibility.md#factory-droid-and-the-144-catalog-in-181).
 
 **Version 1.8.0 adapts to Noctalia 5.4 with calibrated panel geometry and Material 3 palettes.**
-The triage panel adopts `height = "content"` with a calibrated 560px maximum height,
+The triage panel adopts `height = "content"` with a calibrated 880px maximum height,
 eliminating vertical empty space for typical 1–4 provider configurations while preserving
 independent per-column scrolling for extended lists, alongside updated `surface_container`
 and `outline_variant` token roles.
@@ -88,8 +88,9 @@ with `xdg-open`. Install `xdg-open` alongside `ai-usagebar`.
 > **Antigravity & Gemini Quota Endpoint & Telemetry Reconciliation**: For Google Antigravity to report Gemini quotas (both 5-hour session and 7-day weekly limits), `ai-usagebar` must query the production Cloud Code endpoint (`https://cloudcode-pa.googleapis.com`). Because Google's individual Cloud Code API fallback often returns synthetic 0% utilization for Gemini CLI sessions, AI Triage transparently reconciles Antigravity readings with the active local session telemetry (`agy-statusline` observation / `agy -p /quota`), accurately reflecting real 5-hour rolling session progress, true reset deadlines, and weekly utilization.
 
 The plugin requires Noctalia 5.4 or newer (plugin API 43) for the current color
-roles and content-sized panel. The panel fits shorter reports and empty/error
-states, up to 560 logical pixels; longer columns scroll independently.
+roles and content-sized panel. The panel adapts its height automatically to content
+up to 880 logical pixels, fitting standard multi-model setups without vertical scrollbars;
+longer columns scroll independently if exceeding this ceiling.
 
 For the interactive rolling session kickstart feature (`[⚡ Start 5h]`), the plugin bundles
 `bin/ai-kickstart` and resolves it automatically via `noctalia.pluginDir()`, with fallback to
@@ -119,7 +120,7 @@ Install the respective CLI on `PATH` for any backend provider you wish to prime.
 - **Service & Model Visibility Filtering**: Allows hiding specific sub-models or third-party tiers (such as Antigravity's "Claude & GPT OSS") via `hide_claude_oss` or `hidden_services` while retaining full visibility, pacing, and telemetry for other tiers like Gemini, Codex, or Claude Pro across both the status bar capsule and the triage panel. Hidden exhausted tiers are excluded from blocking warnings. When a pinned bar capsule targets a hidden tier or service, the capsule dynamically collapses (`barWidget.setVisible(false)`), reclaiming taskbar space without leaving empty gaps or fallback glyphs.
 - **Provider Identity & Outage Resilience**: Transient outages (such as upstream HTTP 429 Rate Limits or connectivity interruptions) preserve the provider's recognizable icon and identity in error tint rather than falling back to an ambiguous scale icon, presenting actionable diagnostic tooltips on the bar and maintaining dedicated diagnostic cards within the triage panel.
 - **Actionable Failure Diagnostics**: Failed providers stay visible in the panel with the cause, recommended action and original CLI detail. Missing or rejected Claude credentials show `claude auth login` and a copy button; rate limits, server outages, permissions, network failures and response format errors have separate guidance. Automatic bar tooltips retain these diagnostics alongside working providers, and successful refreshes clear them.
-- **Adaptive Geometry & Native Scrolling**: Content-sized panel with a 560px maximum and per-column native scrolling (`ui.scroll`) for model cards, renewal timelines, and reset credits across typography presets (including Huge / 130%).
+- **Adaptive Geometry & Native Scrolling**: Content-sized panel with an 880px maximum and per-column native scrolling (`ui.scroll`) for model cards, renewal timelines, and reset credits across typography presets (including Huge / 130%), fitting without scrollbars under typical configurations.
 
 ## Usage
 
