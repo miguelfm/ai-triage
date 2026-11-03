@@ -116,13 +116,25 @@ $$\text{lowHeadroomPct} = \min(30.0, \max(8.0, \text{oneSessionPct} \times 0.80)
 ##### Temporal Distribution & Anti-Burst Smoothing ($P_{\text{smooth}}$):
 To optimize global multi-service consumption while preventing rapid quota concentration followed by availability droughts ("baleiros"), the model monitors deviation from nominal weekly pace:
 $$\Delta_{\text{pace}} = U_{i,w} - \left(\frac{T_w - \tau_w}{T_w} \times 100\right)$$
-When $H_w > 24.0\text{h}$:
+When $H_w > 24.0\text{h}$, using a standard $\pm 5.0\%$ tolerance band (matching `ai-usagebar`'s pace tolerance):
 $$P_{\text{smooth}} = \begin{cases}
-\max\left(0.35, 1.0 - 0.02 \times (\Delta_{\text{pace}} - 15.0)\right) & \text{if } \Delta_{\text{pace}} > 15.0\% \text{ (ahead of pace)} \\
-\min\left(1.35, 1.0 + 0.015 \times (-\Delta_{\text{pace}} - 15.0)\right) & \text{if } \Delta_{\text{pace}} < -15.0\% \text{ (lagging behind pace)} \\
+\max\left(0.35, 1.0 - 0.02 \times (\Delta_{\text{pace}} - 5.0)\right) & \text{if } \Delta_{\text{pace}} > 5.0\% \text{ (ahead of pace)} \\
+\min\left(1.35, 1.0 + 0.015 \times (-\Delta_{\text{pace}} - 5.0)\right) & \text{if } \Delta_{\text{pace}} < -5.0\% \text{ (lagging behind pace)} \\
 1.0 & \text{otherwise}
 \end{cases}$$
 When $H_w \le 24.0\text{h}$, $P_{\text{smooth}} = 1.0$ (damping is released for the final sprint).
+
+##### Session Rush Weight ($\beta_{\text{session}}$):
+In services with relatively few 5h sessions per week (e.g. Claude Pro $\approx 7$, Codex $\approx 6.3$, Claude OSS $\approx 2.5$), exhausting a 5h rolling session draws down a significant fraction of the weekly budget. The urgency given to rushing a 5h session before its timer expires must strictly couple to weekly quota spent and time remaining until weekly reset.
+
+When nearly a full week remains ($H_w > 60\text{h}$) and duty cycle is low, there are abundant future session slots ($N_{\text{slots}} \gg N_{\text{needed}}$), meaning an unexhausted 5h session does not waste any weekly quota. Rushing it prematurely would deplete the weekly allowance on day 1 and starve services whose weekly reset is much closer. Conversely, as weekly renewal approaches or when session slots become scarce, session urgency must increase to ensure no weekly quota is forfeited:
+$$\text{dutyUrgency} = \min\left(1.0, \max\left(0.0, \frac{\text{DutyCycle} - 0.20}{0.50}\right)\right)$$
+$$\text{horizonUrgency} = \min\left(1.0, \max\left(0.0, \frac{60.0 - H_w}{36.0}\right)\right)$$
+$$\text{headroomFactor} = \begin{cases}
+\max\left(0.20, \frac{w_{\text{free}}}{\text{lowHeadroomPct}}\right) & \text{if } w_{\text{free}} \le \text{lowHeadroomPct} \text{ and } H_w > 24\text{h} \\
+1.0 & \text{otherwise}
+\end{cases}$$
+$$\beta_{\text{session}} = \min\left(1.0, \max\left(0.15, \max(\text{dutyUrgency}, \text{horizonUrgency}) \times \text{headroomFactor}\right)\right)$$
 
 ##### Weekly Modulation Factor $W_{\text{weekly}}$:
 $$W_{\text{weekly}} = \begin{cases}
@@ -160,13 +172,13 @@ $$U_{\text{bottleneck}} = \begin{cases}
 #### 1.2.5 5h Session Window Modeling & Composite Score $J_i(t)$
 
 ##### Case A: Active Session Running ($s_{\text{started}} = \text{true}$)
-Quadratic session decay factor:
-$$\Omega_s(\tau_s) = 1.0 + 1.80 \times \left(\frac{T_s - \tau_s}{T_s}\right)^2$$
+Quadratic session decay factor modulated by weekly coupling ($\beta_{\text{session}}$):
+$$\Omega_s(\tau_s) = 1.0 + (1.80 \times \beta_{\text{session}}) \times \left(\frac{T_s - \tau_s}{T_s}\right)^2$$
 $$\text{baseSession} = s_{\text{free}} \times \Omega_s(\tau_s)$$
 
-Critical session burn urgency ($U_{\text{burn}, s}$) if active time before sleep/expiry is $\le 1.5\text{h}$:
+Critical session burn urgency ($U_{\text{burn}, s}$) if active time before sleep/expiry is $\le 1.5\text{h}$, scaled by weekly pacing and session rush weight:
 $$U_{\text{burn}, s} = \begin{cases}
-50.0 \times \left(\frac{s_{\text{free}}}{100.0}\right) \times \left(\frac{1.50 - H_s}{1.50}\right) & \text{if } H_s \le 1.50\text{h} \text{ and } s_{\text{free}} \ge 15.0\% \\
+50.0 \times \beta_{\text{session}} \times \left(\frac{s_{\text{free}}}{100.0}\right) \times \left(\frac{1.50 - H_s}{1.50}\right) \times W_{\text{weekly}} & \text{if } H_s \le 1.50\text{h} \text{ and } s_{\text{free}} \ge 15.0\% \\
 0.0 & \text{otherwise}
 \end{cases}$$
 

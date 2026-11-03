@@ -2140,6 +2140,7 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
     local uBottleneck = 0.0
     local dutyCycle = 0.0
     local H_w = 0.0
+    local sessionRushWeight = 1.0
 
     if wMetric ~= nil and M.weeklyResetStatus(wMetric, item.entry, nowTime) == "announced" then
         local wAt = wMetric and M.parseIso(wMetric.reset_at)
@@ -2170,12 +2171,14 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             local wElapsedRatio = math.min(1.0, math.max(0.0, (wWindow - wRemSecs) / wWindow))
             local expectedBurn = wElapsedRatio * 100.0
             local overPace = wPct - expectedBurn
-            if overPace > 15.0 then
+            -- Narrower tolerance band (+-5%) aligned with ai-usagebar standard pace tolerance:
+            local paceTol = 5.0
+            if overPace > paceTol then
                 -- Ahead of pace: smoothly dampen to avoid exhausting quota days before renewal
-                paceSmooth = math.max(0.35, 1.0 - 0.02 * (overPace - 15.0))
-            elseif overPace < -15.0 then
+                paceSmooth = math.max(0.35, 1.0 - 0.02 * (overPace - paceTol))
+            elseif overPace < -paceTol then
                 -- Behind pace: gently favor to ensure smooth utilization of available quota
-                paceSmooth = math.min(1.35, 1.0 + 0.015 * (-overPace - 15.0))
+                paceSmooth = math.min(1.35, 1.0 + 0.015 * (-overPace - paceTol))
             end
         end
 
@@ -2201,6 +2204,18 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             local excess = math.min(1.5, dutyCycle - 0.50)
             uBottleneck = 20.0 * (wFree / 100.0) * excess
         end
+
+        -- Coupling 5h session rush urgency with weekly horizon and headroom:
+        -- In a week with few session slots (low gearing), burning a 5h session must be
+        -- weighed against how much weekly quota was already spent and time remaining.
+        -- When nearly a full week remains (H_w > 60h) and dutyCycle is low, there are abundant
+        -- session slots ahead, so an expiring 5h session does not waste weekly budget.
+        -- When dutyCycle is high (sessions scarce) or weekly reset approaches with unspent quota,
+        -- session urgency increases to ensure weekly quota is fully harvested.
+        local dutyUrgency = math.min(1.0, math.max(0.0, (dutyCycle - 0.20) / 0.50))
+        local horizonUrgency = math.min(1.0, math.max(0.0, (60.0 - H_w) / 36.0))
+        local headroomFactor = (wFree <= lowHeadroomPct and H_w > 24.0) and math.max(0.20, wFree / lowHeadroomPct) or 1.0
+        sessionRushWeight = math.min(1.0, math.max(0.15, math.max(dutyUrgency, horizonUrgency) * headroomFactor))
     end
 
     ----------------------------------------------------------------------
@@ -2219,16 +2234,19 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         if H_s < 0.05 then H_s = 0.05 end
 
         if sStarted then
-            -- Active session: 5h timer is running
+            -- Active session: 5h timer is running.
+            -- Urgency to rush the remainder of the 5h session is modulated by sessionRushWeight
+            -- to reflect weekly headroom and time-to-reset:
             local sElapsedRatio = math.min(1.0, math.max(0.0, (sWindow - sRemainingSecs) / sWindow))
-            local sUrgencyFactor = 1.0 + 1.80 * (sElapsedRatio * sElapsedRatio)
+            local sUrgencyFactor = 1.0 + (1.80 * sessionRushWeight) * (sElapsedRatio * sElapsedRatio)
             local baseSession = sFree * sUrgencyFactor
 
-            -- Critical session burn urgency if effective active time before sleep/reset <= 1.5h
+            -- Session burn urgency if effective active time before sleep/reset <= 1.5h,
+            -- modulated by sessionRushWeight and weekly pace factor:
             local uBurnSession = 0.0
             if H_s <= 1.50 and sFree >= 15.0 then
                 local burnUrgency = (1.50 - H_s) / 1.50
-                uBurnSession = 50.0 * (sFree / 100.0) * burnUrgency
+                uBurnSession = 50.0 * sessionRushWeight * (sFree / 100.0) * burnUrgency * wFactor
             end
 
             -- Coupling: session velocity modulated by weekly pace factor and bonuses

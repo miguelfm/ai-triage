@@ -767,7 +767,42 @@ local claudeSprintScore = shared.calculateModelTriageScore(distantClaude, stagge
 local codexSprintScore = shared.calculateModelTriageScore(distantCodex, stagger, os.time(), cfg, true)
 assert(geminiSprintScore > claudeSprintScore and geminiSprintScore > codexSprintScore,
     string.format("Gemini with imminent reset in ~1h (score %.1f) must outrank Claude (%.1f) and Codex (%.1f)", geminiSprintScore, claudeSprintScore, codexSprintScore))
--- 11. Typography scaling & preset proportionality test:
+
+-- 11. 5h Session rush coupling with weekly horizon and headroom:
+-- Claude with 6d 11h left until weekly renewal and low weekly usage (18%) must NOT be rushed
+-- simply because its 5h session is 75% elapsed. Gemini with a closer weekly reset (4d 20h)
+-- and similar weekly usage (19%) must be prioritized over Claude.
+local startOfWeekClaude = {
+    name = "Claude",
+    providerId = "anthropic",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 44, window_secs = 18000, reset_at = isoIn(4680) }, -- 1h 18m left
+    weeklyMetric = { percent = 18, window_secs = 604800, reset_at = isoIn(558000) }, -- 6d 11h left
+}
+local closerResetGemini = {
+    name = "Gemini",
+    providerId = "gemini",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 1, window_secs = 18000, reset_at = isoIn(16440) }, -- 4h 34m left
+    weeklyMetric = { percent = 19, window_secs = 604800, reset_at = isoIn(417000) }, -- 4d 20h left
+}
+local unstartedGemini = {
+    name = "Gemini",
+    providerId = "gemini",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 0, window_secs = 18000, reset_at = nil }, -- uninitiated 5h session
+    weeklyMetric = { percent = 19, window_secs = 604800, reset_at = isoIn(417000) }, -- 4d 20h left
+}
+local claudeScore = shared.calculateModelTriageScore(startOfWeekClaude, nil, os.time(), cfg, true)
+local geminiScore = shared.calculateModelTriageScore(closerResetGemini, nil, os.time(), cfg, true)
+local unstartedGeminiScore = shared.calculateModelTriageScore(unstartedGemini, nil, os.time(), cfg, true)
+
+assert(geminiScore > claudeScore,
+    string.format("Gemini with closer weekly reset in 4d 20h (%.1f) must outrank Claude with 6d 11h (%.1f)", geminiScore, claudeScore))
+assert(unstartedGeminiScore > claudeScore,
+    string.format("Unstarted Gemini with closer weekly reset (%.1f) must outrank Claude (%.1f) despite Claude's active 5h session", unstartedGeminiScore, claudeScore))
+
+-- 12. Typography scaling & preset proportionality test:
 local tDefault = shared.getTypography()
 assert(tDefault.factor == 1.00, "Default typography factor must be 1.00")
 assert(tDefault.fontSize(19) == 19 and tDefault.fontSize(15) == 15 and tDefault.fontSize(9) == 9,

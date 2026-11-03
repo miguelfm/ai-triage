@@ -674,8 +674,8 @@ local dualWindowEntry = {
     plan = "Plus",
     status = "ready",
     metrics = {
-        { label = "Session", percent = 50, window_secs = 18000, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 10800) },
-        { label = "Weekly", percent = 20, window_secs = 604800, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 471600) },
+        { label = "Session", percent = 50, window_secs = 18000, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 10830) },
+        { label = "Weekly", percent = 20, window_secs = 604800, reset_at = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 471630) },
     },
 }
 local dualBar = loadBar({ vendor = "openai" }, { entries = { dualWindowEntry } })
