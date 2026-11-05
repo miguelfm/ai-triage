@@ -1,8 +1,18 @@
 # Noctalia 5.4 integration
 
-Reviewed on 2026-10-31: AI Triage 1.8.3, plugin_api = 43, installed Noctalia 5.4.0.
+Reviewed on 2026-11-05: AI Triage 1.8.4, plugin_api = 43, installed Noctalia 5.4.0.
+Version 1.8.4 introduces Fast Boot resilience and persistent report caching.
 Version 1.8.3 adds DeepRelay and validates full compatibility against ai-usagebar 1.47.0.
 Panel geometry and runtime contract remain unchanged.
+
+## Fast Boot and cold-start report persistence in 1.8.4
+
+Under Noctalia 5.4 and systemd/UWSM with parallel session launch (`-g -1`), the graphical shell and plugin service start before network/DNS connectivity (`network-online.target`) is fully resolved.
+
+Version 1.8.4 introduces:
+- **Zero-millisecond cold start via disk caching**: The service persists the latest authoritative report into `~/.local/state/noctalia/plugins/data/miguelfm/ai-triage/last-report.json`. On initialization, `service.luau` reads this file immediately to populate `noctalia.state` with `report` before the first CLI spawn.
+- **Progressive failure retry**: If `ai-usagebar usage --json` fails due to unready network/DNS (`Could not resolve host` or timeout), `scheduleFailureRetry` replaces the standard 3–5 minute polling interval with progressive backoff (8s, 16s... up to 60s). Once network connectivity is established and a refresh succeeds, the retry counter resets to zero and normal periodic polling resumes.
+- **Panel loading states and instant render**: `onOpen()` reads cached state and calls `render()` immediately before triggering a refresh request, eliminating startup latency and blank/flickering cards. When opening the panel while polling without candidates, the UI displays a clean loading status instead of falsely reporting "No providers configured or reachable."
 
 ## Panel contract
 

@@ -8,6 +8,8 @@ Version **1.7.3** adds half-hour availability budgets and credit-expiry scoring
 separate from ordinary weekly urgency, with deadline/capacity regression coverage.
 Version **1.7.4** suppresses false early-renewal notices when rolling 7-day windows
 (such as OpenAI Codex) clear usage or wake up idle at 0% with unanchored `now + 7d` deadlines.
+Version **1.8.4** adds persistent report caching (`last-report.json`) and progressive retry backoff
+(8s–60s) for cold-boot resilience during early desktop startup before network/DNS readiness.
 
 The original audit was checked on 2026-10-23 against the then-current release,
 [v1.43.0](https://github.com/akitaonrails/ai-usagebar/releases/tag/v1.43.0),
@@ -18,6 +20,20 @@ continues to own authentication, provider requests, caching, token renewal and
 rate-limit backoff. The plugin consumes the report without modifying credentials.
 See upstream's [report projection](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/report.rs)
 and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/antigravity/agy.rs).
+
+## Fast Boot resilience and persistent report caching in 1.8.4
+
+Reviewed 2026-11-05 with ai-usagebar 1.48.1 and Noctalia 5.4.0.
+
+In desktop environments with fast parallel session startup (such as UWSM with `-g -1`), the graphical shell and AI Triage start before the host network interface and DNS resolver finish establishing connectivity.
+
+When `ai-usagebar usage --json` returns a non-zero exit code due to DNS or network unavailability (e.g. `Could not resolve host`), the service previously scheduled the next attempt using the regular polling interval (3 to 5 minutes), leaving the panel without data.
+
+Version 1.8.4 implements:
+1. **Persistent disk cache**: Successful reports are written atomically to `last-report.json` in the plugin data directory. On startup, the cached report is decoded and loaded into `noctalia.state.get("report")` synchronously (0 ms), ensuring bar capsules and panels show valid telemetry immediately.
+2. **Progressive network failure retry**: When a refresh fails without an imminent expired credit deadline, the refresh interval switches to progressive retry (`math.min(RETRY_MAX_MS, RETRY_BASE_MS * retryCount)`, 8s, 16s... up to 60s). Successful refreshes, configuration changes, and manual IPC commands reset `retryCount` to 0.
+3. **Panel fast rendering**: `onOpen()` reads cached state and calls `render()` immediately before triggering a refresh request, eliminating startup latency and flickering.
+4. **Loading state**: While polling with zero candidates, the panel displays an informative loading indicator instead of misleadingly claiming no providers are configured.
 
 ## DeepRelay and the 1.47 catalog in 1.8.3
 

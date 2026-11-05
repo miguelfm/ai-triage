@@ -6,6 +6,12 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
+**Version 1.8.4 adds Fast Boot resilience and persistent report caching.**
+- **Instant startup via cached report**: Persists the last authoritative report in `last-report.json`, allowing the dashboard panel and bar capsules to populate immediately upon system startup without waiting for cold CLI network queries.
+- **Fast Boot retry progression**: Automatically retries failed initial queries progressively (8s, 16s... up to 60s) when the desktop shell starts in parallel before network/DNS connectivity is established, avoiding multi-minute delays until the next periodic refresh.
+- **Loading state**: Displays an informative loading indicator when polling without candidates instead of "No providers configured or reachable."
+See the [Fast Boot audit](docs/ai_usagebar_compatibility.md#fast-boot-resilience-and-persistent-report-caching-in-184) and [Noctalia 5.4 integration](docs/noctalia-5.4.md#fast-boot-and-cold-start-report-persistence-in-184).
+
 **Version 1.8.3 adds DeepRelay and validates ai-usagebar 1.47 compatibility.**
 All 32 ai-usagebar 1.47 providers have translated selector labels, glyphs and
 dashboard links. DeepRelay uses the existing quota-report contract; panel geometry

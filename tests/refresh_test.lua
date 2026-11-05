@@ -266,6 +266,22 @@ callbacks[#callbacks]({ exitCode = 0, stdout = "{}" })
 assert(values.error.code == "" and values.report ~= nil, "corrupt history must not break polling")
 corruptHistory = false
 
+-- Fast Boot resilience: progressive retry on initial/transient network failures
+now = now + 2000
+decodedReport = nil
+env.onIpc("refresh")
+callbacks[#callbacks]({ exitCode = 1, stdout = "", stderr = "Could not resolve host" })
+assert(intervals[#intervals] == 8000, "first network failure must retry in 8s")
+callbacks[#callbacks]({ exitCode = 1, stdout = "", stderr = "Could not resolve host" })
+assert(intervals[#intervals] == 16000, "second failure must retry in 16s")
+
+-- A successful refresh resets the retry counter back to 0
+now = now + 2000
+decodedReport = { entries = {} }
+env.onIpc("refresh")
+callbacks[#callbacks]({ exitCode = 0, stdout = "{}" })
+assert(intervals[#intervals] == 300000, "successful poll resets retry counter and restores normal interval")
+
 local sharedEnv = setmetatable({ noctalia = noctalia }, { __index = _G })
 local shared = assert(load(read("shared.luau"), "shared", "t", sharedEnv))()
 local incompleteFailure = shared.asFailure({})

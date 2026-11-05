@@ -1539,7 +1539,8 @@ function render()
                                fontWeight = "bold", color = "on_surface" }),
                 }),
                 ui.label({
-                    text = noctalia.tr("ui.no_providers") or "No providers configured or reachable.",
+                    text = polling and (noctalia.tr("ui.loading") or "Loading…")
+                        or (noctalia.tr("ui.no_providers") or "No providers configured or reachable."),
                     fontSize = fs(13),
                     color = "on_surface_variant",
                 }),
@@ -1577,13 +1578,13 @@ function onOpen(context)
     if type(context) == "string" and context ~= "" then
         noctalia.state.set("selected", context)
     end
-    requestRefresh()
     report = noctalia.state.get("report")
     failure = asFailure(noctalia.state.get("error"))
     polling = noctalia.state.get("polling") == true
     refreshQueued = noctalia.state.get("refresh_queued") == true
     panel.setWantsSecondTicks(true)
     render()
+    requestRefresh()
 end
 
 function update()
