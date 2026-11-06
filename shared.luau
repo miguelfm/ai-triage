@@ -2165,13 +2165,31 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         local remCalHours = wRemSecs / 3600.0
         local sprintH = H_w
         local isCriticalSprint = (sprintH <= 24.0 or remCalHours <= 24.0)
-        local isPreSprint = not isCriticalSprint and (remCalHours <= 48.0 or sprintH <= 36.0)
 
-        -- Progress within the pre-sprint window (48h -> 24h calendar, or 36h -> 24h active):
+        -- Harvesting horizon scales with model gearing (Km):
+        -- High/moderate gearing models (e.g. Gemini Km=8, Claude Pro Km=7, Codex Km=6.3) require
+        -- multiple 5h sessions to absorb their weekly quota without non-thinking token bottlenecks,
+        -- so their harvesting window opens up to 72h (3 days).
+        -- Low-gearing models (e.g. Claude OSS Km=2.5) where 1 session burns ~40% of the week remain
+        -- protected at 48h to prevent premature exhaustion days before renewal.
+        local harvestHorizonHours = 48.0
+        if gearing > 3.5 then
+            harvestHorizonHours = 48.0 + 24.0 * math.min(1.0, (gearing - 3.5) / 3.5)
+        end
+        local activeHarvestHorizon = harvestHorizonHours * 0.75
+
+        local isPreSprint = not isCriticalSprint and (remCalHours <= harvestHorizonHours or sprintH <= activeHarvestHorizon)
+
+        -- Progressive harvesting curve over the harvesting window (harvestHorizon -> 24h):
         local preProgress = 0.0
         if isPreSprint then
-            preProgress = math.min(1.0, math.max(0.0,
-                math.max((48.0 - remCalHours) / 24.0, (36.0 - sprintH) / 12.0)))
+            local calProgress = (harvestHorizonHours > 24.0)
+                and math.max(0.0, (harvestHorizonHours - remCalHours) / (harvestHorizonHours - 24.0))
+                or 0.0
+            local activeProgress = (activeHarvestHorizon > 24.0)
+                and math.max(0.0, (activeHarvestHorizon - sprintH) / (activeHarvestHorizon - 24.0))
+                or 0.0
+            preProgress = math.min(1.0, math.max(calProgress, activeProgress))
         end
 
         -- Temporal distribution & anti-burst smoothing (prevents concentration of usage followed by voids):
@@ -2183,7 +2201,7 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             local wElapsedRatio = math.min(1.0, math.max(0.0, (wWindow - wRemSecs) / wWindow))
             local expectedBurn = wElapsedRatio * 100.0
             local overPace = wPct - expectedBurn
-            -- In pre-sprint (Stage 1), relax pace tolerance from 5% up to 12% to facilitate harvesting:
+            -- In harvesting phase (Stage 1), relax pace tolerance from 5% up to 12% to facilitate harvesting:
             local paceTol = 5.0
             if isPreSprint then
                 paceTol = 5.0 + 7.0 * preProgress
@@ -2204,7 +2222,7 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             wFactor = math.min(1.80, math.max(0.20, (0.40 + 0.60 * gearedPi_w) * paceSmooth))
         end
 
-        -- Time-arbitrage and perishability urgency: Two-Stage Weekly Sprint
+        -- Time-arbitrage and perishability urgency: Graduated Weekly Sprint
         -- Stage 2: Critical Final Sprint (<= 24 active hours or <= 24 calendar hours)
         -- Reflects that quotas expire permanently if not consumed.
         if isCriticalSprint and wFree > 0.5 then
@@ -2212,13 +2230,14 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             local sprintBonus = sprintH <= 3.0 and (220.0 * (3.0 - sprintH) / 3.0) or 0.0
             uResetWeekly = 50.0 + sprintBonus + (wFree * 4.0 * ratio)
         elseif isPreSprint and wFree > 0.5 then
-            -- Stage 1: Pre-Sprint / Harvesting (24h < remaining <= 48h)
-            -- Elevates models nearing the end of their weekly window above day 1-5 models,
-            -- scaled by remaining headroom and progress toward the final sprint.
+            -- Stage 1: Pre-Sprint / Graduated Harvesting (24h < remaining <= harvestHorizonHours)
+            -- Elevates models nearing the end of their weekly window, scaled by gearing,
+            -- remaining headroom and progressive approach toward the final sprint.
             local headroomScale = (wFree <= lowHeadroomPct and sprintH > 24.0)
                 and math.max(0.20, wFree / lowHeadroomPct)
                 or 1.0
-            uResetWeekly = 30.0 * (wFree / 100.0) * preProgress * headroomScale
+            local curveProgress = preProgress ^ 1.15
+            uResetWeekly = 30.0 * (wFree / 100.0) * curveProgress * headroomScale
         end
 
         -- Unified capacity bottleneck urgency when session slots are scarce:

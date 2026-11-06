@@ -1044,13 +1044,13 @@ assert(argonItems[2].providerId ~= "claude-oss", "Argon must not inherit the Cla
 assert(shared.kickstartTarget({ providerId = "anthropic@work", name = "Claude · work" }) == nil,
     "named accounts cannot be kickstarted with the default CLI login")
 
--- 13. Two-Stage Weekly Sprint (Stage 1 Pre-Sprint <= 48h vs Stage 2 Critical Sprint <= 24h):
+-- 13. Graduated Multi-Stage Weekly Sprint (Stage 1 Harvesting up to 72h based on gearing vs Stage 2 Critical Sprint <= 24h):
 local preSprintModel = {
     name = "Claude",
     providerId = "anthropic",
     entry = { status = "ready" },
     sessionMetric = { percent = 30, window_secs = 18000, reset_at = isoIn(10000) },
-    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(36 * 3600) }, -- 36h left (in 48h pre-sprint)
+    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(36 * 3600) }, -- 36h left (in pre-sprint)
 }
 local distantWeeklyModel = {
     name = "Claude",
@@ -1080,11 +1080,50 @@ local sCrit = shared.calculateModelTriageScore(criticalSprintModel, nil, now, sc
 local sLow = shared.calculateModelTriageScore(lowQuotaPreSprint, nil, now, scheduleConfig, true)
 
 assert(sPre > sDist,
-    string.format("Model in 48h pre-sprint (%.1f) must outrank distant day 1-5 model (%.1f)", sPre, sDist))
+    string.format("Model in pre-sprint (%.1f) must outrank distant day 1-4 model (%.1f)", sPre, sDist))
 assert(sCrit > sPre,
     string.format("Model in <=24h critical sprint (%.1f) must outrank pre-sprint model (%.1f)", sCrit, sPre))
 assert(sPre > sLow,
     string.format("Pre-sprint model with 60%% headroom (%.1f) must outrank low-headroom 4%% model (%.1f) to prevent premature void", sPre, sLow))
+
+-- Gearing-aware 72h horizon: Gemini (Km=8) opens harvesting at 72h (Day 5), whereas low-gearing Claude OSS (Km=2.5) stays protected until 48h:
+local gemini60h = {
+    name = "Gemini",
+    providerId = "gemini",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 10, window_secs = 18000, reset_at = isoIn(10000) },
+    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(60 * 3600) },
+}
+local gemini120h = {
+    name = "Gemini",
+    providerId = "gemini",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 10, window_secs = 18000, reset_at = isoIn(10000) },
+    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(120 * 3600) },
+}
+local sG60 = shared.calculateModelTriageScore(gemini60h, nil, now, scheduleConfig, true)
+local sG120 = shared.calculateModelTriageScore(gemini120h, nil, now, scheduleConfig, true)
+assert(sG60 > sG120,
+    string.format("Gemini with Km=8 at 60h (%.1f) must outrank Gemini at 120h (%.1f) via 72h harvesting window", sG60, sG120))
+
+local claudeOss60h = {
+    name = "Claude & GPT OSS",
+    providerId = "claude-oss",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 10, window_secs = 18000, reset_at = isoIn(10000) },
+    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(60 * 3600) },
+}
+local claudeOss36h = {
+    name = "Claude & GPT OSS",
+    providerId = "claude-oss",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 10, window_secs = 18000, reset_at = isoIn(10000) },
+    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(36 * 3600) },
+}
+local sOss60 = shared.calculateModelTriageScore(claudeOss60h, nil, now, scheduleConfig, true)
+local sOss36 = shared.calculateModelTriageScore(claudeOss36h, nil, now, scheduleConfig, true)
+assert(sOss36 > sOss60,
+    string.format("Claude OSS at 36h (%.1f) must outrank Claude OSS at 60h (%.1f) as 60h is outside its 48h window", sOss36, sOss60))
 
 io.write("ok: shared timestamps, availability, provider order, mathematical triage score, reset staggering, typography scale presets, and 1.40 compat\n")
 

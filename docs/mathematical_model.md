@@ -118,7 +118,7 @@ To optimize global multi-service consumption while preventing rapid quota concen
 $$\Delta_{\text{pace}} = U_{i,w} - \left(\frac{T_w - \tau_w}{T_w} \times 100\right)$$
 When not in the critical final sprint ($H_w > 24.0\text{h}$ and $\tau_w > 24.0\text{h}$):
 $$\text{paceTol} = \begin{cases}
-5.0 + 7.0 \times \text{preProgress} & \text{if in Stage 1 pre-sprint } (\tau_w \le 48\text{h} \text{ or } H_w \le 36\text{h}) \\
+5.0 + 7.0 \times \text{preProgress} & \text{if in Stage 1 harvesting } (\tau_w \le \text{harvestHorizonHours} \text{ or } H_w \le \text{activeHarvestHorizon}) \\
 5.0 & \text{otherwise}
 \end{cases}$$
 $$P_{\text{smooth}} = \begin{cases}
@@ -143,7 +143,7 @@ $$\beta_{\text{session}} = \min\left(1.0, \max\left(0.15, \max(\text{dutyUrgency
 ##### Weekly Modulation Factor $W_{\text{weekly}}$:
 $$W_{\text{weekly}} = \begin{cases}
 \left(0.08 + 0.15 \times \left(\frac{w_{\text{free}}}{\text{lowHeadroomPct}}\right)\right) \times P_{\text{smooth}} & \text{if } w_{\text{free}} \le \text{lowHeadroomPct} \text{ and } H_w > 24\text{h} \\
-\min\left(W_{\max}, \max\left(0.20, (0.40 + 0.60 \times \Pi_{w, \text{geared}}) \times P_{\text{smooth}}\right)\right) & \text{otherwise}
+\min\left(W_{\max>, \max\left(0.20, (0.40 + 0.60 \times \Pi_{w, \text{geared}}) \times P_{\text{smooth}}\right)\right) & \text{otherwise}
 \end{cases}$$
 where $W_{\max} = 1.80$. Credit incentives are added separately; they do not alter
 weekly smoothing, conservation or the natural renewal horizon.
@@ -152,8 +152,16 @@ weekly smoothing, conservation or the natural renewal horizon.
 
 #### 1.2.4 Dynamic Urgency Additives
 
-##### 1. Weekly Perishability & Two-Stage Sprint Urgency ($U_{\text{reset\_weekly}}$)
+##### 1. Weekly Perishability & Graduated Multi-Stage Sprint Urgency ($U_{\text{reset\_weekly}}$)
 For any model with unspent weekly quota ($w_{\text{free}} > 0.5\%$):
+
+- **Harvesting Horizon Calibration ($T_{\text{harvest}}$)**:
+  Models with high gearing or without deep thinking token overhead (such as Gemini with $K_m \approx 8\text{--}10$, Claude Pro with $K_m \approx 7$, and Codex with $K_m \approx 6.3$) require significantly more human interactions and multiple 5h session windows to comfortably absorb their weekly allowance. To avoid an impossible cognitive/workload bottleneck in the final 48 hours, their harvesting horizon dynamically expands up to 72 hours (3 full days). Conversely, low-gearing models ($K_m \le 3.5$, e.g. Claude OSS with $K_m \approx 2.5$) remain protected at 48 hours to prevent premature mid-week exhaustion:
+  $$\text{harvestHorizonHours} = \begin{cases}
+  48.0 & \text{if } K_m \le 3.5 \\
+  48.0 + 24.0 \times \min\left(1.0, \frac{K_m - 3.5}{3.5}\right) & \text{if } K_m > 3.5
+  \end{cases}$$
+  $$\text{activeHarvestHorizon} = \text{harvestHorizonHours} \times 0.75$$
 
 - **Stage 2: Critical Final Sprint** ($H_w \le 24.0\text{h}$ or $\tau_w \le 24.0\text{h}$):
   $$\text{ratio} = \min\left(8.0, \left(\frac{24.0}{\max(0.5, H_w)}\right)^{1.25}\right)$$
@@ -163,20 +171,20 @@ For any model with unspent weekly quota ($w_{\text{free}} > 0.5\%$):
   \end{cases}$$
   $$U_{\text{reset\_weekly}} = 50.0 + \text{sprintBonus} + (w_{\text{free}} \times 4.0 \times \text{ratio})$$
 
-- **Stage 1: Pre-Sprint / Harvesting** ($24.0\text{h} < \tau_w \le 48.0\text{h}$ or $24.0\text{h} < H_w \le 36.0\text{h}$):
-  Elevates models nearing the end of their weekly window above day 1–5 models, scaled by remaining quota and progress toward the final sprint:
-  $$\text{preProgress} = \min\left(1.0, \max\left(0.0, \max\left(\frac{48.0 - \tau_w / 3600}{24.0}, \frac{36.0 - H_w}{12.0}\right)\right)\right)$$
+- **Stage 1: Graduated Pre-Sprint Harvesting** ($24.0\text{h} < \tau_w \le \text{harvestHorizonHours}$ or $24.0\text{h} < H_w \le \text{activeHarvestHorizon}$):
+  Elevates models in their final 48–72 hours of weekly countdown above day 1–4 models, scaled by gearing, remaining quota, and progress toward the final sprint:
+  $$\text{preProgress} = \min\left(1.0, \max\left(0.0, \max\left(\frac{\text{harvestHorizonHours} - \tau_w / 3600}{\text{harvestHorizonHours} - 24.0}, \frac{\text{activeHarvestHorizon} - H_w}{\text{activeHarvestHorizon} - 24.0}\right)\right)\right)$$
   $$\text{headroomScale} = \begin{cases}
   \max\left(0.20, \frac{w_{\text{free}}}{\text{lowHeadroomPct}}\right) & \text{if } w_{\text{free}} \le \text{lowHeadroomPct} \\
   1.0 & \text{otherwise}
   \end{cases}$$
-  $$U_{\text{reset\_weekly}} = 30.0 \times \left(\frac{w_{\text{free}}}{100.0}\right) \times \text{preProgress} \times \text{headroomScale}$$
+  $$U_{\text{reset\_weekly}} = 30.0 \times \left(\frac{w_{\text{free}}}{100.0}\right) \times (\text{preProgress}^{1.15}) \times \text{headroomScale}$$
 
-- **Otherwise** ($H_w > 36.0\text{h}$ and $\tau_w > 48.0\text{h}$):
+- **Otherwise** ($\tau_w > \text{harvestHorizonHours}$ and $H_w > \text{activeHarvestHorizon}$):
   $$U_{\text{reset\_weekly}} = 0.0$$
 
 > [!IMPORTANT]
-> The two-stage sprint model bridges the previous cliff effect: models in their final 48 hours of weekly countdown receive progressive harvesting priority and relaxed pace tolerance ($\text{paceTol} \le 12\%$) without premature starvation of low quotas, while the critical final sprint ($\le 24\text{h}$) and terminal bonus ($\le 3\text{h}$) guarantee zero quota is forfeit.
+> The graduated multi-stage sprint bridges the previous cliff effect: models with high gearing (such as Gemini) begin gentle preference at 72 hours (Day 5), progressing into active harvesting at 48 hours (Day 6) with relaxed pace tolerance ($\text{paceTol} \le 12\%$) without human cognitive burnout, while low-gearing tiers remain guarded until 48 hours and the critical final sprint ($\le 24\text{h}$) guarantees zero quota is forfeit.
 
 ##### 2. Session Capacity Bottleneck Urgency ($U_{\text{bottleneck}}$)
 For models facing an impending session capacity squeeze ($\text{DutyCycle} \ge 0.70$):
