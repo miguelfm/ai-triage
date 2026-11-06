@@ -1044,6 +1044,48 @@ assert(argonItems[2].providerId ~= "claude-oss", "Argon must not inherit the Cla
 assert(shared.kickstartTarget({ providerId = "anthropic@work", name = "Claude · work" }) == nil,
     "named accounts cannot be kickstarted with the default CLI login")
 
+-- 13. Two-Stage Weekly Sprint (Stage 1 Pre-Sprint <= 48h vs Stage 2 Critical Sprint <= 24h):
+local preSprintModel = {
+    name = "Claude",
+    providerId = "anthropic",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 30, window_secs = 18000, reset_at = isoIn(10000) },
+    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(36 * 3600) }, -- 36h left (in 48h pre-sprint)
+}
+local distantWeeklyModel = {
+    name = "Claude",
+    providerId = "anthropic",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 30, window_secs = 18000, reset_at = isoIn(10000) },
+    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(120 * 3600) }, -- 120h left (day 2 of 7)
+}
+local criticalSprintModel = {
+    name = "Claude",
+    providerId = "anthropic",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 30, window_secs = 18000, reset_at = isoIn(10000) },
+    weeklyMetric = { percent = 40, window_secs = 604800, reset_at = isoIn(18 * 3600) }, -- 18h left (critical sprint <= 24h)
+}
+local lowQuotaPreSprint = {
+    name = "Claude",
+    providerId = "anthropic",
+    entry = { status = "ready" },
+    sessionMetric = { percent = 30, window_secs = 18000, reset_at = isoIn(10000) },
+    weeklyMetric = { percent = 96, window_secs = 604800, reset_at = isoIn(36 * 3600) }, -- only 4% left
+}
+
+local sDist = shared.calculateModelTriageScore(distantWeeklyModel, nil, now, scheduleConfig, true)
+local sPre = shared.calculateModelTriageScore(preSprintModel, nil, now, scheduleConfig, true)
+local sCrit = shared.calculateModelTriageScore(criticalSprintModel, nil, now, scheduleConfig, true)
+local sLow = shared.calculateModelTriageScore(lowQuotaPreSprint, nil, now, scheduleConfig, true)
+
+assert(sPre > sDist,
+    string.format("Model in 48h pre-sprint (%.1f) must outrank distant day 1-5 model (%.1f)", sPre, sDist))
+assert(sCrit > sPre,
+    string.format("Model in <=24h critical sprint (%.1f) must outrank pre-sprint model (%.1f)", sCrit, sPre))
+assert(sPre > sLow,
+    string.format("Pre-sprint model with 60%% headroom (%.1f) must outrank low-headroom 4%% model (%.1f) to prevent premature void", sPre, sLow))
+
 io.write("ok: shared timestamps, availability, provider order, mathematical triage score, reset staggering, typography scale presets, and 1.40 compat\n")
 
 

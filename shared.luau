@@ -2161,18 +2161,33 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
         local oneSessionPct = 100.0 / gearing
         local lowHeadroomPct = math.min(30.0, math.max(8.0, oneSessionPct * 0.80))
 
+        local wRemSecs = (wAt and wAt > nowTime) and (wAt - nowTime) or 0
+        local remCalHours = wRemSecs / 3600.0
+        local sprintH = H_w
+        local isCriticalSprint = (sprintH <= 24.0 or remCalHours <= 24.0)
+        local isPreSprint = not isCriticalSprint and (remCalHours <= 48.0 or sprintH <= 36.0)
+
+        -- Progress within the pre-sprint window (48h -> 24h calendar, or 36h -> 24h active):
+        local preProgress = 0.0
+        if isPreSprint then
+            preProgress = math.min(1.0, math.max(0.0,
+                math.max((48.0 - remCalHours) / 24.0, (36.0 - sprintH) / 12.0)))
+        end
+
         -- Temporal distribution & anti-burst smoothing (prevents concentration of usage followed by voids):
-        -- When there are still many active hours left in the week (H_w > 24.0):
+        -- When not in the critical final sprint (isCriticalSprint == false):
         -- Evaluate pacing relative to elapsed time in the 7-day cycle.
         local paceSmooth = 1.0
-        if H_w > 24.0 and wMetric.window_secs then
+        if not isCriticalSprint and wMetric.window_secs then
             local wWindow = tonumber(wMetric.window_secs) or 604800
-            local wRemSecs = (wAt and wAt > nowTime) and (wAt - nowTime) or 0
             local wElapsedRatio = math.min(1.0, math.max(0.0, (wWindow - wRemSecs) / wWindow))
             local expectedBurn = wElapsedRatio * 100.0
             local overPace = wPct - expectedBurn
-            -- Narrower tolerance band (+-5%) aligned with ai-usagebar standard pace tolerance:
+            -- In pre-sprint (Stage 1), relax pace tolerance from 5% up to 12% to facilitate harvesting:
             local paceTol = 5.0
+            if isPreSprint then
+                paceTol = 5.0 + 7.0 * preProgress
+            end
             if overPace > paceTol then
                 -- Ahead of pace: smoothly dampen to avoid exhausting quota days before renewal
                 paceSmooth = math.max(0.35, 1.0 - 0.02 * (overPace - paceTol))
@@ -2189,14 +2204,21 @@ function M.calculateModelTriageScore(item, staggerPlan, nowTime, scheduleConfig,
             wFactor = math.min(1.80, math.max(0.20, (0.40 + 0.60 * gearedPi_w) * paceSmooth))
         end
 
-        -- Time-arbitrage and perishability urgency for imminent weekly reset (<= 24 active hours):
+        -- Time-arbitrage and perishability urgency: Two-Stage Weekly Sprint
+        -- Stage 2: Critical Final Sprint (<= 24 active hours or <= 24 calendar hours)
         -- Reflects that quotas expire permanently if not consumed.
-        -- When active hours <= 24h, remaining 5h sessions are scarce.
-        local sprintH = H_w
-        if sprintH <= 24.0 and wFree > 0.5 then
+        if isCriticalSprint and wFree > 0.5 then
             local ratio = math.min(8.0, (24.0 / math.max(0.5, sprintH)) ^ 1.25)
             local sprintBonus = sprintH <= 3.0 and (220.0 * (3.0 - sprintH) / 3.0) or 0.0
             uResetWeekly = 50.0 + sprintBonus + (wFree * 4.0 * ratio)
+        elseif isPreSprint and wFree > 0.5 then
+            -- Stage 1: Pre-Sprint / Harvesting (24h < remaining <= 48h)
+            -- Elevates models nearing the end of their weekly window above day 1-5 models,
+            -- scaled by remaining headroom and progress toward the final sprint.
+            local headroomScale = (wFree <= lowHeadroomPct and sprintH > 24.0)
+                and math.max(0.20, wFree / lowHeadroomPct)
+                or 1.0
+            uResetWeekly = 30.0 * (wFree / 100.0) * preProgress * headroomScale
         end
 
         -- Unified capacity bottleneck urgency when session slots are scarce:

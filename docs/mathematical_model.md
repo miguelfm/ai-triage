@@ -116,13 +116,17 @@ $$\text{lowHeadroomPct} = \min(30.0, \max(8.0, \text{oneSessionPct} \times 0.80)
 ##### Temporal Distribution & Anti-Burst Smoothing ($P_{\text{smooth}}$):
 To optimize global multi-service consumption while preventing rapid quota concentration followed by availability droughts ("baleiros"), the model monitors deviation from nominal weekly pace:
 $$\Delta_{\text{pace}} = U_{i,w} - \left(\frac{T_w - \tau_w}{T_w} \times 100\right)$$
-When $H_w > 24.0\text{h}$, using a standard $\pm 5.0\%$ tolerance band (matching `ai-usagebar`'s pace tolerance):
+When not in the critical final sprint ($H_w > 24.0\text{h}$ and $\tau_w > 24.0\text{h}$):
+$$\text{paceTol} = \begin{cases}
+5.0 + 7.0 \times \text{preProgress} & \text{if in Stage 1 pre-sprint } (\tau_w \le 48\text{h} \text{ or } H_w \le 36\text{h}) \\
+5.0 & \text{otherwise}
+\end{cases}$$
 $$P_{\text{smooth}} = \begin{cases}
-\max\left(0.35, 1.0 - 0.02 \times (\Delta_{\text{pace}} - 5.0)\right) & \text{if } \Delta_{\text{pace}} > 5.0\% \text{ (ahead of pace)} \\
-\min\left(1.35, 1.0 + 0.015 \times (-\Delta_{\text{pace}} - 5.0)\right) & \text{if } \Delta_{\text{pace}} < -5.0\% \text{ (lagging behind pace)} \\
+\max\left(0.35, 1.0 - 0.02 \times (\Delta_{\text{pace}} - \text{paceTol})\right) & \text{if } \Delta_{\text{pace}} > \text{paceTol}\% \text{ (ahead of pace)} \\
+\min\left(1.35, 1.0 + 0.015 \times (-\Delta_{\text{pace}} - \text{paceTol})\right) & \text{if } \Delta_{\text{pace}} < -\text{paceTol}\% \text{ (lagging behind pace)} \\
 1.0 & \text{otherwise}
 \end{cases}$$
-When $H_w \le 24.0\text{h}$, $P_{\text{smooth}} = 1.0$ (damping is released for the final sprint).
+When $H_w \le 24.0\text{h}$ or $\tau_w \le 24.0\text{h}$, $P_{\text{smooth}} = 1.0$ (damping is released for the final sprint).
 
 ##### Session Rush Weight ($\beta_{\text{session}}$):
 In services with relatively few 5h sessions per week (e.g. Claude Pro $\approx 7$, Codex $\approx 6.3$, Claude OSS $\approx 2.5$), exhausting a 5h rolling session draws down a significant fraction of the weekly budget. The urgency given to rushing a 5h session before its timer expires must strictly couple to weekly quota spent and time remaining until weekly reset.
@@ -148,17 +152,31 @@ weekly smoothing, conservation or the natural renewal horizon.
 
 #### 1.2.4 Dynamic Urgency Additives
 
-##### 1. Perishability & Final Sprint Urgency ($U_{\text{reset\_weekly}}$)
-For any model with unspent weekly quota ($w_{\text{free}} > 0.5\%$) within the perishable horizon ($H_w \le 24.0\text{h}$):
-$$\text{ratio} = \min\left(8.0, \left(\frac{24.0}{\max(0.5, H_w)}\right)^{1.25}\right)$$
-$$\text{sprintBonus} = \begin{cases}
-220.0 \times \left(\frac{3.0 - H_w}{3.0}\right) & \text{if } H_w \le 3.0\text{h} \\
-0.0 & \text{otherwise}
-\end{cases}$$
-$$U_{\text{reset\_weekly}} = 50.0 + \text{sprintBonus} + (w_{\text{free}} \times 4.0 \times \text{ratio})$$
+##### 1. Weekly Perishability & Two-Stage Sprint Urgency ($U_{\text{reset\_weekly}}$)
+For any model with unspent weekly quota ($w_{\text{free}} > 0.5\%$):
+
+- **Stage 2: Critical Final Sprint** ($H_w \le 24.0\text{h}$ or $\tau_w \le 24.0\text{h}$):
+  $$\text{ratio} = \min\left(8.0, \left(\frac{24.0}{\max(0.5, H_w)}\right)^{1.25}\right)$$
+  $$\text{sprintBonus} = \begin{cases}
+  220.0 \times \left(\frac{3.0 - H_w}{3.0}\right) & \text{if } H_w \le 3.0\text{h} \\
+  0.0 & \text{otherwise}
+  \end{cases}$$
+  $$U_{\text{reset\_weekly}} = 50.0 + \text{sprintBonus} + (w_{\text{free}} \times 4.0 \times \text{ratio})$$
+
+- **Stage 1: Pre-Sprint / Harvesting** ($24.0\text{h} < \tau_w \le 48.0\text{h}$ or $24.0\text{h} < H_w \le 36.0\text{h}$):
+  Elevates models nearing the end of their weekly window above day 1–5 models, scaled by remaining quota and progress toward the final sprint:
+  $$\text{preProgress} = \min\left(1.0, \max\left(0.0, \max\left(\frac{48.0 - \tau_w / 3600}{24.0}, \frac{36.0 - H_w}{12.0}\right)\right)\right)$$
+  $$\text{headroomScale} = \begin{cases}
+  \max\left(0.20, \frac{w_{\text{free}}}{\text{lowHeadroomPct}}\right) & \text{if } w_{\text{free}} \le \text{lowHeadroomPct} \\
+  1.0 & \text{otherwise}
+  \end{cases}$$
+  $$U_{\text{reset\_weekly}} = 30.0 \times \left(\frac{w_{\text{free}}}{100.0}\right) \times \text{preProgress} \times \text{headroomScale}$$
+
+- **Otherwise** ($H_w > 36.0\text{h}$ and $\tau_w > 48.0\text{h}$):
+  $$U_{\text{reset\_weekly}} = 0.0$$
 
 > [!IMPORTANT]
-> The final sprint bonus ($\text{sprintBonus}$) ensures that when a provider's weekly reset is within $\le 3\text{h}$, any remaining quota (even $2\text{–}5\%$) receives top triage priority over all distant models, eliminating the previous $5\%$ cutoff cliff and ensuring zero quota is forfeit.
+> The two-stage sprint model bridges the previous cliff effect: models in their final 48 hours of weekly countdown receive progressive harvesting priority and relaxed pace tolerance ($\text{paceTol} \le 12\%$) without premature starvation of low quotas, while the critical final sprint ($\le 24\text{h}$) and terminal bonus ($\le 3\text{h}$) guarantee zero quota is forfeit.
 
 ##### 2. Session Capacity Bottleneck Urgency ($U_{\text{bottleneck}}$)
 For models facing an impending session capacity squeeze ($\text{DutyCycle} \ge 0.70$):
