@@ -369,6 +369,7 @@ end
 
 local lastAgyCliAt = 0
 local cachedAgyCliQuota = nil
+local pluginStartedAt = os.time()
 
 local function resolveAgyQuota(callback)
     -- 1. Try reading the observation JSON file first (instant, 0ms)
@@ -409,8 +410,16 @@ local function resolveAgyQuota(callback)
         end
     end
 
-    -- Check if we have cached CLI quota from a recent authoritative query
     local now = os.time()
+
+    -- During early boot/login (first 20 seconds), avoid spawning background CLIs:
+    -- NetworkManager (DHCP/WiFi) and Secret Service/keyrings are still settling.
+    if (now - pluginStartedAt) < 20 then
+        callback(observationQuota)
+        return
+    end
+
+    -- Check if we have cached CLI quota from a recent authoritative query
     if cachedAgyCliQuota and cachedAgyCliQuota.gemini_5h and cachedAgyCliQuota.gemini_5h.reset_at then
         local at = shared.parseIso(cachedAgyCliQuota.gemini_5h.reset_at)
         if at and at > now and (now - lastAgyCliAt) < 180 then
@@ -422,9 +431,17 @@ local function resolveAgyQuota(callback)
     -- 2. Fallback: run `agy -p /quota` asynchronously if `agy` is available.
     -- This performs the exact same force-refresh as typing `/usage` in the terminal.
     -- Throttled to at most once every 30 seconds to avoid spawning unnecessary processes.
+    -- Prepend bin/headless to PATH so background CLI queries never spawn interactive
+    -- browser windows if credentials need a refresh while headless.
     if noctalia and noctalia.runAsync and (now - lastAgyCliAt) >= 30 then
         lastAgyCliAt = now
-        local spawned = noctalia.runAsync("agy -p /quota", function(result)
+        local pluginDir = (type(noctalia.pluginDir) == "function" and noctalia.pluginDir())
+            or (noctalia.expandPath and noctalia.expandPath("~/.config/noctalia/plugins/ai-triage"))
+        local headlessDir = pluginDir and (pluginDir .. "/bin/headless") or nil
+        local cmd = (headlessDir and type(headlessDir) == "string")
+            and string.format('export PATH="%s:$PATH"; exec agy -p /quota', headlessDir)
+            or 'export BROWSER=:; exec agy -p /quota'
+        local spawned = noctalia.runAsync(cmd, function(result)
             if result and not result.timedOut and result.exitCode == 0 and result.stdout then
                 local quota = shared.parseAgyCliQuota(result.stdout)
                 if quota then

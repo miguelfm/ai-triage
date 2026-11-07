@@ -1,0 +1,3 @@
+#!/bin/sh
+# Headless safety shield: prevent background CLI queries from spawning interactive browser windows
+exit 1
