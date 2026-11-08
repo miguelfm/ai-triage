@@ -6,6 +6,12 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
+**Version 1.8.5 adds Headless Browser Shielding and Graduated 72h Harvesting.**
+- **Headless background query isolation**: Transparently wraps `ai-usagebar usage --json` and fallback `agy -p /quota` executions with a headless sandbox (`bin/headless/` interceptors for `xdg-open`, `gio`, `x-www-browser`, `default-browser`, and an `agy` wrapper). Prevents transient network disconnects, cold boot unreadiness, or expired sessions from triggering interactive browser OAuth login popups on the desktop.
+- **Two-stage weekly sprint with gearing-aware harvesting (up to 72h)**: Replaces the binary 24h sprint with a continuous two-stage urgency curve. High-gearing models (e.g. Gemini with $K_m = 8$) begin graduating harvest urgency up to 72 hours (3 days) before weekly reset with relaxed pace smoothing (up to 12% over-pace tolerance), preventing cognitive and token bottlenecks. Low-gearing models ($K_m \le 3.5$) maintain protected 48h windows to safeguard early-week capacity.
+- **Cold boot settling grace period**: Introduces a 20-second startup grace period after desktop login before background CLI queries are dispatched, giving NetworkManager, Wi-Fi, and Secret Service/keyrings ample time to initialize while serving immediate UI metrics from the persistent disk cache.
+See the [compatibility audit](docs/ai_usagebar_compatibility.md#headless-background-query-isolation-and-browser-suppression-in-185) and [mathematical model](docs/mathematical_model.md#124-dynamic-urgency-additives).
+
 **Version 1.8.4 adds Fast Boot resilience and persistent report caching.**
 - **Instant startup via cached report**: Persists the last authoritative report in `last-report.json`, allowing the dashboard panel and bar capsules to populate immediately upon system startup without waiting for cold CLI network queries.
 - **Fast Boot retry progression**: Automatically retries failed initial queries progressively (8s, 16s... up to 60s) when the desktop shell starts in parallel before network/DNS connectivity is established, avoiding multi-minute delays until the next periodic refresh.

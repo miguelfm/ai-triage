@@ -10,6 +10,9 @@ Version **1.7.4** suppresses false early-renewal notices when rolling 7-day wind
 (such as OpenAI Codex) clear usage or wake up idle at 0% with unanchored `now + 7d` deadlines.
 Version **1.8.4** adds persistent report caching (`last-report.json`) and progressive retry backoff
 (8s–60s) for cold-boot resilience during early desktop startup before network/DNS readiness.
+Version **1.8.5** adds isolated headless command execution shields (`bin/headless/`) and
+browser suppression wrappers, preventing background CLI queries from spawning interactive
+browser OAuth windows during cold startup or network dropouts.
 
 The original audit was checked on 2026-10-23 against the then-current release,
 [v1.43.0](https://github.com/akitaonrails/ai-usagebar/releases/tag/v1.43.0),
@@ -20,6 +23,20 @@ continues to own authentication, provider requests, caching, token renewal and
 rate-limit backoff. The plugin consumes the report without modifying credentials.
 See upstream's [report projection](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/report.rs)
 and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/antigravity/agy.rs).
+
+## Headless background query isolation and browser suppression in 1.8.5
+
+Reviewed 2026-11-08 with installed ai-usagebar 1.48.2 and Noctalia 5.4.0.
+
+In desktop sessions where Noctalia and AI Triage start quickly (or during transient network / DNS drops), upstream tools attempting to query or refresh provider tokens can behave unexpectedly:
+1. **Background `agy -p /quota` subshell invocation**: Both `ai-usagebar`'s internal Antigravity telemetry provider (`src/antigravity/agy.rs`) and AI Triage's local session telemetry fallback query the Antigravity CLI via `agy -p /quota`.
+2. **Headless OAuth popup pitfall**: When `agy` encounters a network outage, cold-boot unreadiness (e.g. Wi-Fi DHCP pending), or an unvalidated token, its internal Go authentication routine (`server_oauth.go` / `authhandler`) treats the condition as an unauthenticated session and executes `xdg-open` with the Google OAuth consent URL, inadvertently launching a full browser window/tab (`app-com.google.Chrome.scope`) on the user's desktop from an automated background check.
+
+Version 1.8.5 implements comprehensive multi-layer isolation:
+- **Universal headless environment wrapper (`buildHeadlessCommand`)**: Every background command spawned by the service (`ai-usagebar usage --json` and `agy -p /quota`) executes with an isolated `PATH` containing `bin/headless` as its first entry, plus `export BROWSER=: BROWSER_NO_OPEN=1`.
+- **Headless interceptor scripts (`bin/headless/`)**: Dummy executable shims for `xdg-open`, `gio`, `x-www-browser`, `www-browser`, and `default-browser` immediately terminate with exit code 1 when invoked in headless mode, safely neutralizing unwanted browser launches.
+- **Safe `agy` wrapper (`bin/headless/agy`)**: Ensures that any nested execution of `agy` (such as those dispatched internally by `ai-usagebar`) inherits the headless shield and suppresses child browser processes.
+- **Settling grace period**: In addition to serving cached metrics immediately from `last-report.json`, background CLI executions are suppressed for the first 20 seconds of desktop startup, allowing NetworkManager, wireless association, and system secret storage (GNOME Keyring / Secret Service) to settle.
 
 ## Fast Boot resilience and persistent report caching in 1.8.4
 
