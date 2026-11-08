@@ -7,6 +7,25 @@
 local COMMAND = "ai-usagebar usage --json"
 local shared = require("./shared.luau")
 
+local function getHeadlessDir()
+    local pluginDir = (type(noctalia.pluginDir) == "function" and noctalia.pluginDir())
+        or (noctalia.expandPath and noctalia.expandPath("~/.config/noctalia/plugins/ai-triage"))
+    return pluginDir and (pluginDir .. "/bin/headless") or nil
+end
+
+local function buildHeadlessCommand(cmd, timeoutMs)
+    local headlessDir = getHeadlessDir()
+    local prefix = (headlessDir and type(headlessDir) == "string")
+        and string.format('export PATH="%s:$PATH" BROWSER=: BROWSER_NO_OPEN=1; ', headlessDir)
+        or 'export BROWSER=: BROWSER_NO_OPEN=1; '
+    if timeoutMs then
+        local marker = "__AI_TRIAGE_EXIT__"
+        return prefix .. "timeout --kill-after=5s " .. tostring(math.floor(timeoutMs / 1000))
+            .. "s " .. cmd .. " 2>&1; code=$?; printf '\\n" .. marker .. "%s\\n' \"$code\""
+    end
+    return prefix .. "exec " .. cmd
+end
+
 local function intervalMs()
     local minutes = tonumber(noctalia.getConfig("refresh_minutes")) or 5
     if minutes < 1 then minutes = 1 end
@@ -26,11 +45,10 @@ local function runQuery(callback)
     -- Streams have no host deadline; coreutils timeout bounds the entire CLI
     -- process group, and the final marker reports completion even on failure.
     if type(noctalia.runStream) ~= "function" then
-        return noctalia.runAsync(COMMAND, callback, math.min(timeoutMs, 60000))
+        return noctalia.runAsync(buildHeadlessCommand(COMMAND), callback, math.min(timeoutMs, 60000))
     end
     local marker = "__AI_TRIAGE_EXIT__"
-    local command = "timeout --kill-after=5s " .. tostring(math.floor(timeoutMs / 1000))
-        .. "s " .. COMMAND .. " 2>&1; code=$?; printf '\\n" .. marker .. "%s\\n' \"$code\""
+    local command = buildHeadlessCommand(COMMAND, timeoutMs)
     local document, diagnostics, completed = "", {}, false
     return noctalia.runStream(command, function(line)
         if completed then return end
@@ -435,12 +453,7 @@ local function resolveAgyQuota(callback)
     -- browser windows if credentials need a refresh while headless.
     if noctalia and noctalia.runAsync and (now - lastAgyCliAt) >= 30 then
         lastAgyCliAt = now
-        local pluginDir = (type(noctalia.pluginDir) == "function" and noctalia.pluginDir())
-            or (noctalia.expandPath and noctalia.expandPath("~/.config/noctalia/plugins/ai-triage"))
-        local headlessDir = pluginDir and (pluginDir .. "/bin/headless") or nil
-        local cmd = (headlessDir and type(headlessDir) == "string")
-            and string.format('export PATH="%s:$PATH"; exec agy -p /quota', headlessDir)
-            or 'export BROWSER=:; exec agy -p /quota'
+        local cmd = buildHeadlessCommand("agy -p /quota")
         local spawned = noctalia.runAsync(cmd, function(result)
             if result and not result.timedOut and result.exitCode == 0 and result.stdout then
                 local quota = shared.parseAgyCliQuota(result.stdout)

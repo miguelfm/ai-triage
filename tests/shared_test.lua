@@ -772,30 +772,32 @@ assert(geminiSprintScore > claudeSprintScore and geminiSprintScore > codexSprint
 -- Claude with 6d 11h left until weekly renewal and low weekly usage (18%) must NOT be rushed
 -- simply because its 5h session is 75% elapsed. Gemini with a closer weekly reset (4d 20h)
 -- and similar weekly usage (19%) must be prioritized over Claude.
+local weekdayTime = 1731063600 -- Friday 11:00 UTC (active workday)
+local function isoAt(s) return os.date("!%Y-%m-%dT%H:%M:%SZ", weekdayTime + s) end
 local startOfWeekClaude = {
     name = "Claude",
     providerId = "anthropic",
     entry = { status = "ready" },
-    sessionMetric = { percent = 44, window_secs = 18000, reset_at = isoIn(4680) }, -- 1h 18m left
-    weeklyMetric = { percent = 18, window_secs = 604800, reset_at = isoIn(558000) }, -- 6d 11h left
+    sessionMetric = { percent = 44, window_secs = 18000, reset_at = isoAt(4680) }, -- 1h 18m left
+    weeklyMetric = { percent = 18, window_secs = 604800, reset_at = isoAt(558000) }, -- 6d 11h left
 }
 local closerResetGemini = {
     name = "Gemini",
     providerId = "gemini",
     entry = { status = "ready" },
-    sessionMetric = { percent = 1, window_secs = 18000, reset_at = isoIn(16440) }, -- 4h 34m left
-    weeklyMetric = { percent = 19, window_secs = 604800, reset_at = isoIn(417000) }, -- 4d 20h left
+    sessionMetric = { percent = 1, window_secs = 18000, reset_at = isoAt(16440) }, -- 4h 34m left
+    weeklyMetric = { percent = 19, window_secs = 604800, reset_at = isoAt(417000) }, -- 4d 20h left
 }
 local unstartedGemini = {
     name = "Gemini",
     providerId = "gemini",
     entry = { status = "ready" },
     sessionMetric = { percent = 0, window_secs = 18000, reset_at = nil }, -- uninitiated 5h session
-    weeklyMetric = { percent = 19, window_secs = 604800, reset_at = isoIn(417000) }, -- 4d 20h left
+    weeklyMetric = { percent = 19, window_secs = 604800, reset_at = isoAt(417000) }, -- 4d 20h left
 }
-local claudeScore = shared.calculateModelTriageScore(startOfWeekClaude, nil, os.time(), cfg, true)
-local geminiScore = shared.calculateModelTriageScore(closerResetGemini, nil, os.time(), cfg, true)
-local unstartedGeminiScore = shared.calculateModelTriageScore(unstartedGemini, nil, os.time(), cfg, true)
+local claudeScore = shared.calculateModelTriageScore(startOfWeekClaude, nil, weekdayTime, cfg, true)
+local geminiScore = shared.calculateModelTriageScore(closerResetGemini, nil, weekdayTime, cfg, true)
+local unstartedGeminiScore = shared.calculateModelTriageScore(unstartedGemini, nil, weekdayTime, cfg, true)
 
 assert(geminiScore > claudeScore,
     string.format("Gemini with closer weekly reset in 4d 20h (%.1f) must outrank Claude with 6d 11h (%.1f)", geminiScore, claudeScore))

@@ -1,0 +1,20 @@
+#!/bin/sh
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export PATH="$SCRIPT_DIR:$PATH"
+export BROWSER=:
+export BROWSER_NO_OPEN=1
+
+REAL_AGY=""
+IFS=:
+for p in $PATH; do
+    if [ "$p" != "$SCRIPT_DIR" ] && [ -x "$p/agy" ]; then
+        REAL_AGY="$p/agy"
+        break
+    fi
+done
+
+if [ -n "$REAL_AGY" ]; then
+    exec "$REAL_AGY" "$@"
+else
+    exit 1
+fi
