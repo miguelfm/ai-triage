@@ -239,14 +239,29 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
     local isWeeklyExhausted = (wMetric ~= nil and wPct >= 100)
     local baseId = item and ((item.entry and item.entry.id) or item.providerId)
 
-    -- Reset credit advice: a claim only pays with enough active hours left before the renewal
-    local advice = staggerPlan and staggerPlan.creditAdvice and baseId and staggerPlan.creditAdvice[baseId]
-
     if isWeekly and shared.weeklyResetStatus(metric, item and item.entry) ~= "announced" then
         return { status = "unconfirmed", label = "Check", glyph = "clock",
             color = "on_surface_variant", bg = "on_surface/0.06", border = "outline_variant/0.20",
             summary = shared.weeklyResetTooltip(metric, item and item.entry) }
     end
+
+    if item and item.informational then
+        local total = item.overallWeeklyMetric and tonumber(item.overallWeeklyMetric.percent)
+        local exhausted = percent >= 100 or isWeeklyExhausted or (total ~= nil and total >= 100)
+        return {
+            status = exhausted and "exhausted" or "detail",
+            label = exhausted and "Exhausted" or (not isWeekly and item.sharedSession and "Shared 5h" or "Model limit"),
+            glyph = exhausted and "circle-x" or "info-circle",
+            color = exhausted and "#f87171" or "on_surface_variant",
+            bg = exhausted and "error/0.18" or "on_surface/0.06", border = "outline_variant/0.20",
+            summary = not isWeekly and item.sharedSession
+                and "Same five-hour session as Claude; this is not a separate Fable allowance."
+                or "Fable's reported model limit. Usage also counts against Claude's overall weekly quota.",
+        }
+    end
+
+    -- Reset credit advice: a claim only pays with enough active hours left before the renewal
+    local advice = staggerPlan and staggerPlan.creditAdvice and baseId and staggerPlan.creditAdvice[baseId]
 
     if isWeekly and advice and advice.status == "claim" then
         return {
@@ -784,7 +799,19 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
     end
 
     -- Element 2: Complementary status or action element (Always rendered)
-    if isWeekly then
+    if item.informational then
+        bottomRowElements[#bottomRowElements + 1] = ui.row({
+            gap = 4, align = "center", justify = "center", paddingH = 7, paddingV = 2,
+            radius = 5, fill = "on_surface/0.06",
+            tooltip = isWeekly and "Fable usage also counts against Claude's overall weekly quota."
+                or (item.sharedSession and "The session percentage and reset time are shared with Claude."
+                    or "Fable-specific session reported by Claude."),
+        }, {
+            ui.glyph({ name = "info-circle", size = gs(12), color = "on_surface_variant" }),
+            ui.label({ text = isWeekly and "Within Claude quota" or (item.sharedSession and "Shared with Claude" or "Model session"),
+                fontSize = fs(12), color = "on_surface_variant" }),
+        })
+    elseif isWeekly then
         local gearing, isCalibrated = getModelGearing(item and (item.providerId or (item.entry and item.entry.id)), item and item.name, item)
         if gearing then
             local oneSessionPct = math.floor((100.0 / gearing) + 0.5)
@@ -1150,13 +1177,14 @@ local function renderColumns(candidates, typo)
     local sessionCards = {}
     local weeklyCards = {}
     for _, item in ipairs(modelItems) do
-        local sCard = renderMetricCard(item, item.sessionMetric, "5h", staggerPlan, typo)
-        if sCard ~= nil then
-            sessionCards[#sessionCards + 1] = sCard
-        end
-        local wCard = renderMetricCard(item, item.weeklyMetric, "7d", staggerPlan, typo)
-        if wCard ~= nil then
-            weeklyCards[#weeklyCards + 1] = wCard
+        local rows = { item }
+        local detail = shared.claudeFableDetail(item)
+        if detail then rows[#rows + 1] = detail end
+        for _, row in ipairs(rows) do
+            local sCard = renderMetricCard(row, row.sessionMetric, "5h", staggerPlan, typo)
+            if sCard ~= nil then sessionCards[#sessionCards + 1] = sCard end
+            local wCard = renderMetricCard(row, row.weeklyMetric, "7d", staggerPlan, typo)
+            if wCard ~= nil then weeklyCards[#weeklyCards + 1] = wCard end
         end
     end
 

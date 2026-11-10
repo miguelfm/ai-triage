@@ -69,6 +69,10 @@
     "query_timeout_seconds": {
       "label": "Kota sorgusu zaman aşımı (saniye)",
       "description": "Tüm sağlayıcılar için en uzun bekleme süresi. Çok sayıda hesap veya yavaş Antigravity başlangıcı için artırın."
+    },
+    "show_claude_fable": {
+      "label": "Fable kullanımını göster",
+      "description": "Panelde Claude yanında ve Claude araç ipucunda Fable kullanımını gösterir. Beş saatlik oturum ortaktır; bildirildiğinde haftalık değer Fable’a özeldir."
     }
   },
   "ui": {

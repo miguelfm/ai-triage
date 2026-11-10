@@ -73,6 +73,10 @@
       "description": "Daily hours unavailable for meals, breaks or other tasks (0–24). Spread proportionally across waking hours; no fixed break times.",
       "label": "Other daily unavailable time (hours)"
     },
+    "show_claude_fable": {
+      "description": "Adds Fable readings beside Claude in the panel and to the Claude tooltip. The five-hour session is shared; the weekly reading is Fable-specific when reported.",
+      "label": "Show Fable usage"
+    },
     "hide_claude_oss": {
       "description": "Hides the Claude & GPT OSS tier from Antigravity in both the bar and panel, keeping Gemini active.",
       "label": "Hide Claude & GPT OSS"

@@ -69,6 +69,10 @@
       "description": "Horas diárias indisponíveis para refeições, pausas ou outras tarefas (0–24). Distribuídas proporcionalmente pelas horas acordadas, sem horários fixos.",
       "label": "Outras horas indisponíveis por dia"
     },
+    "show_claude_fable": {
+      "description": "Adiciona as leituras do Fable ao lado do Claude no painel e à dica do Claude. A sessão de cinco horas é compartilhada; a leitura semanal é específica do Fable quando informada.",
+      "label": "Mostrar uso do Fable"
+    },
     "hide_claude_oss": {
       "description": "Oculta o nível Claude & GPT OSS do Antigravity na barra e no painel, mantendo o Gemini ativo.",
       "label": "Ocultar Claude & GPT OSS"

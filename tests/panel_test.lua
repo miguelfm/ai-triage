@@ -372,6 +372,34 @@ assert(hasTooltip(unknownTree, "Special launch offer") and not has(labels(unknow
     "unknown offers must retain their source title in the tooltip without inventing a model scope")
 
 -- Weekly Reset Schedule visibility in Column 3
+local fableUsage = creditEntry("anthropic", "Claude", 10, 160, {})
+fableUsage.metrics[1].percent = 70
+fableUsage.metrics[3] = { label = "Fable (7d)", percent = 7, window_secs = 604800, reset_at = isoIn(160 * 3600) }
+assert(not has(labels(loadPanel(fableUsage)), "Fable"), "Fable detail must be opt-in")
+local usageTree, _, usageEnv = loadPanel(fableUsage, nil, { show_claude_fable = true, schedule_aware_triage = false })
+local usageLabels = labels(usageTree)
+assert(has(usageLabels, "Fable") and has(usageLabels, "Shared 5h") and has(usageLabels, "Shared with Claude")
+    and has(usageLabels, "Within Claude quota") and has(usageLabels, "10%") and has(usageLabels, "7%"),
+    "optional detail must show both the overall and model weekly readings, with shared-session labeling")
+local usageShared = usageEnv.require("./shared.luau")
+local primaryItems = usageShared.collectModelItems({ fableUsage })
+assert(#primaryItems == 1, "Fable detail must not introduce an independent routing/calibration item")
+local detail = assert(usageShared.claudeFableDetail(primaryItems[1]))
+assert(detail.sessionMetric == fableUsage.metrics[1] and detail.weeklyMetric == fableUsage.metrics[3]
+    and detail.overallWeeklyMetric == fableUsage.metrics[2] and detail.sharedSession,
+    "Fable must reuse the real shared session and retain both weekly constraints")
+fableUsage.id = "anthropic@work"
+local accountTree = loadPanel(fableUsage, nil, { show_claude_fable = true })
+assert(has(labels(accountTree), "Shared with Claude"), "named Claude accounts must support their own Fable details")
+fableUsage.metrics[4] = { label = "Fable (5h)", percent = 12, window_secs = 18000, reset_at = isoIn(3600) }
+local dedicatedTree = loadPanel(fableUsage, nil, { show_claude_fable = true })
+assert(has(labels(dedicatedTree), "12%") and not has(labels(dedicatedTree), "Shared 5h"),
+    "a genuinely reported model-specific session must take precedence over the shared fallback")
+fableUsage.metrics[4] = nil
+fableUsage.metrics[3] = nil
+assert(not has(labels(loadPanel(fableUsage, nil, { show_claude_fable = true })), "Fable"),
+    "enabling the option must not invent a Fable reading absent from the source")
+
 assert(has(holdLabels, "Weekly Reset Schedule"), "Column 3 must display the Weekly Reset Schedule")
 assert(has(holdLabels, "0d 05h") and has(holdLabels, "5d 12h"), "Column 3 schedule rows must display remaining time as Xd Yh in its own cell")
 assert(has(holdLabels, "12:00"), "Column 3 schedule rows must display reset clock in its own monospace cell")

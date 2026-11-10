@@ -11,6 +11,12 @@ for the November 10 review, real-panel verification and the remaining
 overall-weekly estimate limitation. The API 43 and panel geometry contract below
 remain unchanged.
 
+Version 1.10.0 adds an opt-in Fable detail row next to the normal Claude readings
+and a Fable reading in Claude's tooltip. Its session is explicitly shared when
+the source has no separate Fable session. The real panel was inspected on
+Hyprland with the Huge preset; the existing panel geometry and native scrolling
+remain sufficient. See the [Fable display audit](ai_usagebar_compatibility.md#optional-fable-consumption-details-in-1100).
+
 ## Fast Boot and cold-start report persistence in 1.8.4
 
 Under Noctalia 5.4 and systemd/UWSM with parallel session launch (`-g -1`), the graphical shell and plugin service start before network/DNS connectivity (`network-online.target`) is fully resolved.

@@ -1,6 +1,6 @@
 id = "miguelfm/ai-triage"
 name = "AI Triage"
-version = "1.9.0"
+version = "1.10.0"
 plugin_api = 43
 author = "miguelfm"
 license = "MIT"
@@ -115,6 +115,13 @@ step = 0.5
 visible_when = { key = "schedule_aware_triage", values = ["true"] }
 
 # Service & model filtering: Allows hiding specific models or providers.
+
+[[setting]]
+key = "show_claude_fable"
+type = "bool"
+label_key = "settings.show_claude_fable.label"
+description_key = "settings.show_claude_fable.description"
+default = false
 
 [[setting]]
 key = "hide_claude_oss"

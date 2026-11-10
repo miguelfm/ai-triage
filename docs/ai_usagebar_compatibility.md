@@ -15,6 +15,8 @@ browser suppression wrappers, preventing background CLI queries from spawning in
 browser OAuth windows during cold startup or network dropouts.
 Version **1.9.0** identifies model-specific reset offers without adding type labels
 to general resets or repeating the model throughout a credit card.
+Version **1.10.0** adds optional Fable readings beside Claude, distinguishing
+the shared session from the model's weekly limit.
 
 The original audit was checked on 2026-10-23 against the then-current release,
 [v1.43.0](https://github.com/akitaonrails/ai-usagebar/releases/tag/v1.43.0),
@@ -25,6 +27,39 @@ continues to own authentication, provider requests, caching, token renewal and
 rate-limit backoff. The plugin consumes the report without modifying credentials.
 See upstream's [report projection](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/report.rs)
 and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/antigravity/agy.rs).
+
+## Optional Fable consumption details in 1.10.0
+
+Reviewed 2026-11-10 with ai-usagebar 1.50.0 and Noctalia 5.4.0 on Hyprland.
+
+The plugin-level `show_claude_fable` boolean is off by default. When enabled,
+reported Fable metrics add one informational row immediately after Claude in the
+panel's session and weekly columns. Claude's bar tooltip gains a Fable reading;
+the capsule itself retains the ordinary Claude display. This works for named
+Claude accounts and respects the hidden-services filter. An unavailable source
+or a report without any Fable metric adds no invented model readings.
+
+The usual source has an account-wide `Session (5h)`, overall `Weekly (7d)` and
+model-specific `Fable (7d)`. The detail uses the same session metric and reset
+timestamp as Claude, labeled `Shared 5h` and `Shared with Claude`, while displaying
+the distinct reported weekly metric. A genuinely reported Fable session takes
+precedence over this shared fallback. A missing window displays `Not reported`.
+The setting does not reconstruct five-hour usage attributable only to Fable.
+
+Fable remains part of the shared Claude allowance. Its detail does not become
+an independent routing provider, feed gearing calibration, add another kickstart
+button, duplicate renewal/claim cards or change the reset-credit strategy. The
+detail flags exhaustion when its own limit or the overall weekly limit is spent.
+Unknown weekly dates retain the existing `Check` state. The weekly card explains
+that its usage is within Claude's overall quota, rather than an additional pool.
+
+Validation covers default/off and enabled rendering, distinct overall/model
+weekly readings, shared metric identity, named accounts, dedicated-session
+precedence, missing Fable data, unchanged routing item count and the extra bar
+tooltip row. All twelve Lua suites and the Brussels deadline replay pass, as
+does plugin lint. The real panel was inspected at Huge scale with the setting
+enabled. The pre-existing ai-usagebar 1.50.0 / recorded 1.47 catalog mismatch
+described below remains outside this feature.
 
 ## Model-specific reset labels in 1.9.0
 

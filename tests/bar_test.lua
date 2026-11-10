@@ -743,4 +743,24 @@ assert(containsText(anthropicBar.rendered(), "25%"), "Anthropic Claude Pro must 
 
 io.write("ok: account selection, unavailable providers, steady capsule, and typography scaling in bar\n")
 
+local fableReport = { entries = { {
+    id = "anthropic", display_name = "Claude", status = "ready", metrics = {
+        { label = "Session (5h)", percent = 70, window_secs = 18000 },
+        { label = "Weekly (7d)", percent = 10, window_secs = 604800 },
+        { label = "Fable (7d)", percent = 7, window_secs = 604800 },
+    },
+} } }
+local ordinaryClaude = loadBar({ vendor = "anthropic" }, fableReport)
+local detailedClaude = loadBar({ vendor = "anthropic", show_claude_fable = true }, fableReport)
+local foundFable = false
+for _, row in ipairs(detailedClaude.tooltip()) do
+    if row.key == "Fable (shared 5h / weekly)" then
+        assert(row.value == "70% / 7%", "Fable tooltip must pair the shared session with its own weekly reading")
+        foundFable = true
+    end
+end
+assert(foundFable and #detailedClaude.tooltip() == #ordinaryClaude.tooltip() + 1,
+    "the optional detail must add one tooltip reading without replacing Claude")
+assert(containsText(detailedClaude.rendered(), "70%") and not containsText(detailedClaude.rendered(), "7%"),
+    "the capsule must retain the normal Claude reading; the extra model detail belongs in its tooltip")
 

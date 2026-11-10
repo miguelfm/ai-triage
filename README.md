@@ -6,6 +6,15 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
+**Version 1.10.0 adds optional Fable consumption details.**
+Enable **Show Fable usage** in plugin settings to add a Fable row immediately
+after Claude in both panel columns, plus its readings in Claude's bar tooltip.
+The five-hour reading is marked **Shared 5h / Shared with Claude** when the CLI
+only reports an account-wide session. The weekly card shows the reported Fable
+limit, which still draws from Claude's overall weekly allowance. The option is
+off by default and adds no independent provider ranking, calibration, kickstart
+action or reset-credit recommendation. Missing Fable data is not invented.
+
 **Version 1.9.0 makes reset-credit scope visible.**
 Reset cards identify model-specific offers such as **Fable reset**, with
 `Weekly: this model only · 5h: all models` for Claude accounts with a session limit.
@@ -186,6 +195,7 @@ Plugin-level settings (shared across poller, capsules, and panel):
 | `weekend_sleep_end_hour` | `double` | `9` | Weekend active hours resume (0 to 23.5; `8.5` = 08:30). Visible when schedule-aware triage is enabled. |
 | `meal_pause_hours` | `double` | `1` | Other daily unavailable hours for meals, breaks or tasks (0 to 24, half-hour steps), spread proportionally across waking hours without fixed break times. Visible when schedule-aware triage is enabled. |
 | `hide_claude_oss` | `bool` | `false` | Hides the Claude & GPT OSS tier from Antigravity in both the bar and panel, keeping Gemini active. |
+| `show_claude_fable` | `bool` | `false` | Adds Fable panel cards and readings in Claude's tooltip when reported. Clearly identifies the shared five-hour session and the Fable weekly limit. |
 | `hidden_services` | `string` | `""` | *(Advanced)* Comma-separated list of provider or model IDs to hide from both bar and panel (e.g. `claude-oss, moonshot`). |
 | `gearing_claude_oss` | `double` | `2.5` | *(Advanced)* Sessions per week for Claude & GPT OSS (1 session burns ~40% weekly quota). Calibrated dynamically by telemetry. |
 | `gearing_gemini` | `double` | `8.0` | *(Advanced)* Sessions per week for Gemini (1 session burns ~12.5% weekly quota). Calibrated dynamically by telemetry. |

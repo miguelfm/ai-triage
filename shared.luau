@@ -1504,6 +1504,33 @@ function M.kickstartTarget(itemOrId, optionalName)
     return nil
 end
 
+-- Extra Claude detail is informational: its session is normally the same
+-- account-wide five-hour allowance, and its weekly limit also draws from the
+-- overall weekly pool. Do not feed it into routing or session/week calibration.
+function M.claudeFableDetail(item)
+    local entry = item and item.entry
+    if type(entry) ~= "table" or M.baseProvider(entry.id) ~= "anthropic"
+        or M.unavailable(entry) or M.isModelHidden(entry.id, "Fable")
+        or not noctalia or type(noctalia.getConfig) ~= "function"
+        or noctalia.getConfig("show_claude_fable") ~= true then return nil end
+    local metrics = {}
+    for _, metric in ipairs(type(entry.metrics) == "table" and entry.metrics or {}) do
+        if type(metric) == "table" and tostring(metric.label or ""):lower():find("%f[%w]fable%f[%W]")
+            and M.isQuotaMetric(metric) then
+            metrics[#metrics + 1] = metric
+        end
+    end
+    local session, weekly = M.dualMetrics(metrics)
+    if not session and not weekly then return nil end
+    local sharedSession = session == nil
+    return {
+        providerId = item.providerId, name = "Fable", glyph = item.glyph,
+        entry = entry, sessionMetric = session or item.sessionMetric,
+        weeklyMetric = weekly, overallWeeklyMetric = item.weeklyMetric,
+        informational = true, sharedSession = sharedSession,
+    }
+end
+
 -- Normalize candidate provider entries and unpack multi-model providers (Antigravity) into distinct model items
 function M.collectModelItems(candidates)
     local items = {}

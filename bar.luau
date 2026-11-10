@@ -611,6 +611,15 @@ local function tooltip(picked, hidden)
                     if left ~= "" then
                         rows[#rows + 1] = { key = "Reset", value = left }
                     end
+                    local detail = shared.claudeFableDetail({ entry = entry, providerId = entry.id,
+                        sessionMetric = mShort, weeklyMetric = mWeekly })
+                    if detail then
+                        local detailValue = formatDualMetric(detail.sessionMetric, detail.weeklyMetric)
+                        if detailValue ~= "" then
+                            rows[#rows + 1] = { key = detail.sharedSession and "Fable (shared 5h / weekly)" or "Fable",
+                                value = detailValue }
+                        end
+                    end
                 else
                     -- A balance-only provider carries no metric: the tooltip shows
                     -- the same balance the capsule does, ahead of the plan name.
