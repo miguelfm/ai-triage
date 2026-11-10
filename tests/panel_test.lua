@@ -340,6 +340,37 @@ for _, row in ipairs(collect(shortTree, "row")) do
 end
 assert(limitedTime, "an infeasible 95% target must not be presented as assured")
 
+-- A model-only reset must be identifiable without hovering over the offer.
+local fableCredit = creditEntry("anthropic", "Claude", 3, 161, { 168, 240 })
+local launchTitle = "New model launch: one Fable reset for Pro and Team Standard, launch week only"
+fableCredit.reset_credits.credits[1].title = launchTitle
+fableCredit.reset_credits.credits[2].title = "Full reset (Weekly + 5 hr)"
+local fableTree = loadPanel(fableCredit, nil, calendarConfig)
+local fableLabels = labels(fableTree)
+assert(has(fableLabels, "Fable reset") and has(fableLabels, "Weekly: this model only · 5h: all models")
+    and not mentions(fableLabels, "Fable reset:"),
+    "credit cards must visibly distinguish Fable weekly usage from the shared session refill")
+assert(not has(fableLabels, "General reset") and not has(fableLabels, "Full reset (Weekly + 5 hr)")
+    and hasTooltip(fableTree, "Full reset (Weekly + 5 hr)"),
+    "general resets need no extra labels; their original description stays in the tooltip")
+assert(has(fableLabels, "Fast-track · Fable") and hasTooltip(fableTree, launchTitle),
+    "weekly routing must name the reset model and retain the complete source offer")
+local scopedEstimate = false
+for _, row in ipairs(collect(fableTree, "row")) do
+    local tip = row.props.tooltip or ""
+    if tip:find("Fable reset:", 1, true) and tip:find("Estimate uses total weekly quota", 1, true) then
+        scopedEstimate = true
+    end
+end
+assert(scopedEstimate, "model-specific fast-track estimates must disclose the use of total weekly quota")
+fableCredit.metrics[2].percent = 100
+assert(has(labels(loadPanel(fableCredit, nil, calendarConfig)), "Claim Fable Reset"),
+    "claim actions must also identify which model the reset covers")
+fableCredit.reset_credits.credits[1].title = "Special launch offer"
+local unknownTree = loadPanel(fableCredit, nil, calendarConfig)
+assert(hasTooltip(unknownTree, "Special launch offer") and not has(labels(unknownTree), "Fable reset"),
+    "unknown offers must retain their source title in the tooltip without inventing a model scope")
+
 -- Weekly Reset Schedule visibility in Column 3
 assert(has(holdLabels, "Weekly Reset Schedule"), "Column 3 must display the Weekly Reset Schedule")
 assert(has(holdLabels, "0d 05h") and has(holdLabels, "5d 12h"), "Column 3 schedule rows must display remaining time as Xd Yh in its own cell")

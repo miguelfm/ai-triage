@@ -251,7 +251,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
     if isWeekly and advice and advice.status == "claim" then
         return {
             status = "claim_reset",
-            label = "Claim Reset",
+            label = advice.scope and advice.scope.model and ("Claim " .. advice.scope.model .. " Reset") or "Claim Reset",
             glyph = "ticket",
             color = "#c084fc",
             bg = "tertiary/0.22",
@@ -286,10 +286,11 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
             summary = string.format("Claim before %s · ~%.1fh needed / %.1fh available · up to ~%d%% extra quota%s",
                 os.date("%b %d %H:%M %Z", urgency.deadlineAt), urgency.neededHours, urgency.availableHours,
                 math.floor(advice.cycleGain + 0.5), urgency.feasible and "" or " · 95% may be unreachable in this window")
+            summary = shared.resetCreditScopeSummary(advice, summary)
         end
         return {
             status = "fast_track",
-            label = "Fast-track",
+            label = advice.scope and advice.scope.model and ("Fast-track · " .. advice.scope.model) or "Fast-track",
             glyph = "flame",
             color = "#38bdf8",
             bg = "primary/0.20",
@@ -1002,28 +1003,40 @@ local function renderCreditCard(credit, typo)
         creditRow[#creditRow + 1] = openBtn
     end
 
+    local scope = credit.scope or {}
     local body = {
         ui.row({ gap = 6, align = "center", tooltip = credit.fullTitle }, creditRow),
-        ui.row({
-            gap = 5, align = "center",
-            paddingH = 2,
-        }, {
-            ui.glyph({ name = "clock", size = gs(13), color = fgColor }),
-            ui.label({
-                text = credit.expiry,
-                fontSize = fs(13),
-                fontWeight = "medium",
-                color = fgColor,
-                maxLines = 1,
-            }),
-        }),
     }
-    if credit.advice ~= nil then
+    if scope.model ~= nil then
         body[#body + 1] = ui.label({
-            text = credit.advice,
-            fontSize = fs(11),
-            color = credit.role == "claim" and "on_surface" or "on_surface_variant",
-            maxLines = 2,
+            text = scope.label,
+            fontSize = fs(12), fontWeight = "semibold",
+            color = "primary",
+        })
+    end
+    if scope.detail ~= nil then
+        body[#body + 1] = ui.label({
+            text = scope.detail,
+            fontSize = fs(11), color = "on_surface_variant",
+        })
+    end
+    body[#body + 1] = ui.row({
+        gap = 5, align = "center", paddingH = 2,
+    }, {
+        ui.glyph({ name = "clock", size = gs(13), color = fgColor }),
+        ui.label({
+            text = credit.expiry,
+            fontSize = fs(13), fontWeight = "medium", color = fgColor, maxLines = 1,
+        }),
+    })
+    if credit.advice ~= nil then
+        body[#body + 1] = ui.row({ tooltip = credit.adviceTooltip or credit.advice }, {
+            ui.label({
+                text = credit.advice, flexGrow = 1,
+                fontSize = fs(11),
+                color = credit.role == "claim" and "on_surface" or "on_surface_variant",
+                maxLines = 2,
+            }),
         })
     end
     return ui.column(cardStyle(4, nil, nil, 8), body)

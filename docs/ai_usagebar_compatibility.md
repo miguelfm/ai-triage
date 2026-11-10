@@ -13,6 +13,8 @@ Version **1.8.4** adds persistent report caching (`last-report.json`) and progre
 Version **1.8.5** adds isolated headless command execution shields (`bin/headless/`) and
 browser suppression wrappers, preventing background CLI queries from spawning interactive
 browser OAuth windows during cold startup or network dropouts.
+Version **1.9.0** identifies model-specific reset offers without adding type labels
+to general resets or repeating the model throughout a credit card.
 
 The original audit was checked on 2026-10-23 against the then-current release,
 [v1.43.0](https://github.com/akitaonrails/ai-usagebar/releases/tag/v1.43.0),
@@ -23,6 +25,52 @@ continues to own authentication, provider requests, caching, token renewal and
 rate-limit backoff. The plugin consumes the report without modifying credentials.
 See upstream's [report projection](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/report.rs)
 and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/antigravity/agy.rs).
+
+## Model-specific reset labels in 1.9.0
+
+Reviewed 2026-11-10 with installed ai-usagebar 1.50.0 and Noctalia 5.4.0.
+
+The Claude report exposes both `Weekly (7d)` and `Fable (7d)` metrics. Its reset
+inventory describes the launch offer as a Fable reset, but does not supply a
+structured scope field. AI Triage recognizes explicit reset/model wording in the
+offer title, including versioned model names, legacy text-only inventories and
+model labels supplied by quota metrics. A model mentioned only as launch context
+does not establish a restricted reset. Unknown titles remain in tooltips.
+
+The credit card shows **Fable reset** once, followed by
+`Weekly: this model only · 5h: all models` when the account reports a session
+limit. Other model-specific offers get a model label and a short scope
+description. General resets get no extra type label or coverage line. All cards
+retain their complete upstream title in the header tooltip. Weekly routing
+badges identify the model as `Fast-track · Fable` or `Claim Fable Reset`;
+standalone advice and tooltips also retain the model context.
+
+[Claude's reset documentation](https://support.claude.com/en/articles/17007452-what-is-a-limit-reset)
+states that this offer restores weekly usage spent on Fable while preserving
+usage spent on other models. It also refills the complete five-hour session,
+when present, and keeps the ordinary weekly renewal date.
+[The launch offer](https://support.claude.com/en/articles/17506494-claude-fable-5-2-launch-offers)
+illustrates an 80% week consisting of 50% Fable and 30% other-model usage dropping
+to 30% after redemption. Fable usage still draws from the shared weekly quota;
+its additional limit is not an independent weekly allowance.
+
+The real November 10 report announced ordinary renewal on November 17 at 02:00
+CET and credit expiry at 08:59 CET that morning. Existing last-chance logic
+recognizes that the credit cannot usefully wait for that next cycle. This
+release preserves that logic, quota valuation, scoring and the 95% claim
+threshold. Estimates still use the overall weekly metric, not attributed Fable
+usage; model-specific advice explicitly says `Estimate uses total weekly quota`.
+These estimates do not promise that a Fable reset restores all weekly usage.
+
+Validation: all twelve Lua suites, the Brussels credit-deadline replay and
+`noctalia plugins lint .` pass. Scope regressions cover the actual launch title,
+missing model metrics, custom metric names, legacy inventories, mixed accounts,
+general/unknown offers and the rendered badges/tooltips. The real Hyprland panel
+was inspected at the configured Huge scale. The strict Python catalog check
+still fails on unchanged pre-release code: installed ai-usagebar 1.50.0 adds
+`mistral` beyond the recorded 1.47 catalog. This release does not claim that
+provider's selector support. The community snapshot ships regular copies of the
+headless interceptor scripts to satisfy its no-symlink packaging rule.
 
 ## Headless background query isolation and browser suppression in 1.8.5
 

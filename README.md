@@ -6,6 +6,20 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
+**Version 1.9.0 makes reset-credit scope visible.**
+Reset cards identify model-specific offers such as **Fable reset**, with
+`Weekly: this model only · 5h: all models` for Claude accounts with a session limit.
+The card names the model once; its description and advice avoid repeating it.
+General resets have no additional type labels; complete source titles remain in
+tooltips, including unrecognized offers. Fast-track and claim badges also name
+the model. Scope is inferred from explicit reset/model wording in the CLI's title, including legacy reports and
+model names supplied by quota metrics. Pacing and refill estimates still use the
+overall weekly quota, and model-specific advice explicitly identifies that limit.
+This release changes presentation, not the credit valuation or claim threshold.
+See the [scope behavior, limits and validation](docs/ai_usagebar_compatibility.md#model-specific-reset-labels-in-190).
+See [Claude's reset documentation](https://support.claude.com/en/articles/17007452-what-is-a-limit-reset)
+for the distinction between restoring Fable usage and restoring all weekly usage.
+
 **Version 1.8.5 adds Headless Browser Shielding and Graduated 72h Harvesting.**
 - **Headless background query isolation**: Transparently wraps `ai-usagebar usage --json` and fallback `agy -p /quota` executions with a headless sandbox (`bin/headless/` interceptors for `xdg-open`, `gio`, `x-www-browser`, `default-browser`, and an `agy` wrapper). Prevents transient network disconnects, cold boot unreadiness, or expired sessions from triggering interactive browser OAuth login popups on the desktop.
 - **Two-stage weekly sprint with gearing-aware harvesting (up to 72h)**: Replaces the binary 24h sprint with a continuous two-stage urgency curve. High-gearing models (e.g. Gemini with $K_m = 8$) begin graduating harvest urgency up to 72 hours (3 days) before weekly reset with relaxed pace smoothing (up to 12% over-pace tolerance), preventing cognitive and token bottlenecks. Low-gearing models ($K_m \le 3.5$) maintain protected 48h windows to safeguard early-week capacity.

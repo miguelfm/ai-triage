@@ -5,6 +5,12 @@ Version 1.8.4 introduces Fast Boot resilience and persistent report caching.
 Version 1.8.3 adds DeepRelay and validates full compatibility against ai-usagebar 1.47.0.
 Panel geometry and runtime contract remain unchanged.
 
+Version 1.9.0 adds concise model-specific reset labels while keeping general
+resets unlabeled. See the [reset scope audit](ai_usagebar_compatibility.md#model-specific-reset-labels-in-190)
+for the November 10 review, real-panel verification and the remaining
+overall-weekly estimate limitation. The API 43 and panel geometry contract below
+remain unchanged.
+
 ## Fast Boot and cold-start report persistence in 1.8.4
 
 Under Noctalia 5.4 and systemd/UWSM with parallel session launch (`-g -1`), the graphical shell and plugin service start before network/DNS connectivity (`network-online.target`) is fully resolved.

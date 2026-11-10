@@ -447,6 +447,49 @@ assert(#multiCards == 2, "both credits are listed")
 assert(multiCards[1].role == "claim" and multiCards[1].advice ~= nil, "the earliest credit is the one to claim")
 assert(multiCards[2].role == nil and multiCards[2].advice == nil, "later credits stay unclaimed")
 
+-- Scope stays attached to each offer, including a launch credit with no model
+-- metric, and must not leak between accounts or be inferred from a launch name.
+local launchTitle = "New model launch: one Fable reset for Pro and Team Standard, launch week only"
+local scoped = creditCandidate(3, 161, 168)
+scoped.reset_credits.credits[1].title = launchTitle
+local scopedPlan, scopedStats = shared.analyzeResetCredits({ scoped }, os.time(), calendarHours)
+local scopedCards = shared.collectResetCredits({ scoped }, scopedPlan)
+assert(scopedCards[1].scope.model == "Fable" and scopedCards[1].scope.label == "Fable reset",
+    "launch credits must expose their model even without a model-specific metric")
+assert(scopedCards[1].fullTitle == launchTitle and scopedStats.anthropic.advice.lastChance,
+    "scope labeling must preserve the source title and last-chance detection")
+assert(scopedStats.anthropic.advice.summary:find("Estimate uses total weekly quota", 1, true),
+    "model-specific advice must disclose that its estimate uses the overall weekly metric")
+local scopeCases = {
+    { "FABLE limit reset", "Fable" },
+    { "Fable 5.2 reset", "Fable" },
+    { "Full reset (Fable only)", "Fable" },
+    { "Reset for Sonnet", "Sonnet" },
+    { "Fable launch: Full reset", nil },
+    { "Full reset (Weekly + 5 hr)", nil },
+    { "Unfable reset", nil },
+    { "Special launch offer", nil },
+}
+for _, c in ipairs(scopeCases) do
+    assert(shared.resetCreditScope(c[1], scoped).model == c[2], "incorrect scope for " .. c[1])
+end
+local customModel = creditCandidate(3, 161, 168)
+customModel.metrics[#customModel.metrics + 1] = { label = "Aurora (7d)", percent = 0, window_secs = 604800 }
+assert(shared.resetCreditScope("Aurora reset", customModel).model == "Aurora",
+    "model labels from provider metrics must work beyond the known Claude families")
+local general = creditCandidate(100, 96, 240)
+general.id = "anthropic@work"
+general.reset_credits.credits[1].title = "Full reset (Weekly + 5 hr)"
+local mixedPlan = shared.analyzeResetCredits({ scoped, general }, os.time(), calendarHours)
+local mixedCards = shared.collectResetCredits({ scoped, general }, mixedPlan)
+assert(mixedCards[1].scope.model == "Fable" and mixedCards[2].scope.label == nil
+    and mixedCards[2].scope.model == nil and not mixedCards[2].advice:find("Fable", 1, true),
+    "a model-specific offer must not relabel a different account's general reset")
+scoped.reset_credits = nil
+scoped.sections = { { type = "block", label = "Reset credits", body = { "Fable reset · expires in 7d" } } }
+assert(shared.collectResetCredits({ scoped })[1].scope.model == "Fable",
+    "legacy text-only credits must expose model scope too")
+
 -- Same-day renewal and credit expiration (e.g. Codex renewing in 5d on Oct 22 and expiring on Oct 22)
 local sameDayCandidate = {
     id = "openai",

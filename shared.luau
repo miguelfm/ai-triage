@@ -1043,6 +1043,53 @@ function M.severityRole(section, calm)
 end
 
 -- ── Reset credit analysis and staggering plan ─────────────────────────────────
+-- The CLI currently supplies scope in the offer title, not a structured field.
+-- Require an explicit reset/model association: a launch mentioning a model is
+-- not, by itself, evidence that a full reset is restricted to that model.
+function M.resetCreditScope(title, entry)
+    local text = trim(tostring(title or ""))
+    local lower = text:lower()
+    local models = { "Fable", "Opus", "Sonnet", "Haiku" }
+    for _, metric in ipairs(type(entry) == "table" and type(entry.metrics) == "table" and entry.metrics or {}) do
+        if type(metric) == "table" and M.isQuotaMetric(metric) then
+            local name = trim(tostring(metric.label or ""):gsub("%s*%b()", ""))
+            local generic = name:lower()
+            if name ~= "" and not generic:find("week", 1, true)
+                and not generic:find("session", 1, true)
+                and generic ~= tostring(entry.display_name or entry.name or entry.id or ""):lower() then
+                models[#models + 1] = name
+            end
+        end
+    end
+    for _, model in ipairs(models) do
+        local pattern = model:lower():gsub("([^%w])", "%%%1")
+        local start = "%f[%w]" .. pattern
+        if lower:find(start .. "%s+reset%f[%W]")
+            or lower:find(start .. "%s+limit%s+reset%f[%W]")
+            or lower:find(start .. "%s+[%d%.]+%s+reset%f[%W]")
+            or lower:find(start .. "[%- ]only%f[%W]")
+            or lower:find("%f[%w]reset%s+for%s+" .. pattern .. "%f[%W]") then
+            local session = M.dualMetrics(entry and entry.metrics)
+            return { model = model, label = model .. " reset",
+                detail = M.baseProvider(entry and entry.id) == "anthropic" and model:lower() == "fable"
+                    and ("Weekly: this model only" .. (session and " · 5h: all models" or ""))
+                    or "Model-specific reset" }
+        end
+    end
+    -- General and unrecognized offers need no scope label. Their complete
+    -- source title remains available in the card's tooltip.
+    return {}
+end
+
+function M.resetCreditScopeSummary(advice, summary, includeModel)
+    local scope = advice and advice.scope
+    if scope and scope.model then
+        local prefix = includeModel == false and "" or (scope.label .. ": ")
+        return prefix .. summary .. " · Estimate uses total weekly quota"
+    end
+    return summary
+end
+
 -- A weekly reset credit is worth the quota it lets you burn before the natural
 -- renewal would have refilled the week anyway, minus the unused quota it throws
 -- away. That holds whether a claim zeroes the counter under the same renewal or
@@ -1258,6 +1305,7 @@ function M.analyzeResetCredits(entries, nowTime, scheduleConfig)
                         title = rc.title or "Full reset",
                         expiresAt = expAt,
                         remainingSecs = expAt - nowTime,
+                        scope = M.resetCreditScope(rc.title, entry),
                     }
                 end
             end
@@ -1277,6 +1325,7 @@ function M.analyzeResetCredits(entries, nowTime, scheduleConfig)
                                 title = text:match("^(.-)%s+·") or text,
                                 expiresAt = expAt,
                                 remainingSecs = expAt - nowTime,
+                                scope = M.resetCreditScope(text:match("^(.-)%s+·") or text, entry),
                             }
                         end
                     end
@@ -1307,6 +1356,7 @@ function M.analyzeResetCredits(entries, nowTime, scheduleConfig)
                 entry = entry,
             }
             stats.advice = adviseResetCredit(stats, M.getModelGearing(id, displayName), nowTime, scheduleConfig)
+            stats.advice.scope = earliest and earliest.scope
             stats.canClaimNow = stats.advice.status == "claim"
             providerStats[id] = stats
             if earliest then
@@ -1402,6 +1452,8 @@ function M.analyzeResetCredits(entries, nowTime, scheduleConfig)
     end
 
     for id, stats in pairs(providerStats) do
+        stats.advice.cardSummary = M.resetCreditScopeSummary(stats.advice, stats.advice.summary, false)
+        stats.advice.summary = M.resetCreditScopeSummary(stats.advice, stats.advice.summary)
         if staggerPlan.fastTrack[id] then
             local session, weekly = M.dualMetrics(stats.entry.metrics)
             stats.advice.urgency = M.resetCreditUrgency({ entry = stats.entry, providerId = id,
@@ -1547,7 +1599,8 @@ function M.collectResetCredits(candidates, staggerPlan)
                 providerName = tostring(entry.display_name or entry.name or providerId or ""),
                 glyph = M.providerGlyph(providerId),
                 expiry = expiryText or "Expiration not reported",
-                fullTitle = title or "Full reset",
+                fullTitle = title or "Reset scope not reported",
+                scope = M.resetCreditScope(title, entry),
                 expiresAt = expiresAt or math.huge,
                 role = role,
             }
@@ -1596,7 +1649,8 @@ function M.collectResetCredits(candidates, staggerPlan)
         if not seen[id] then
             seen[id] = true
             local advice = staggerPlan and staggerPlan.creditAdvice and staggerPlan.creditAdvice[id]
-            credit.advice = advice and advice.summary or nil
+            credit.advice = advice and (advice.cardSummary or advice.summary) or nil
+            credit.adviceTooltip = advice and advice.summary or nil
             if staggerPlan and staggerPlan.optimalClaimProviders and staggerPlan.optimalClaimProviders[id] then
                 credit.role = "claim"
             end
