@@ -399,7 +399,7 @@ local function chip(entry, flagged, isVert, typo)
                 end
                 if showValue then
                     rowChildren[#rowChildren + 1] = ui.label({
-                        text = string.format("%d%%", mPct),
+                        text = string.format("%.0f%%", mPct),
                         fontSize = fs(11),
                         fontWeight = "semibold",
                         color = mTint,

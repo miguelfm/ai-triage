@@ -68,11 +68,31 @@
     },
     "query_timeout_seconds": {
       "label": "Kota sorgusu zaman aşımı (saniye)",
-      "description": "Tüm sağlayıcılar için en uzun bekleme süresi. Çok sayıda hesap veya yavaş Antigravity başlangıcı için artırın."
+      "description": "AIUsageBar raporu için en uzun bekleme (30–600 saniye). Shuvquota HTTP okumalarının süresi 30 saniyedir."
     },
     "show_claude_fable": {
       "label": "Fable kullanımını göster",
       "description": "Panelde Claude yanında ve Claude araç ipucunda Fable kullanımını gösterir. Beş saatlik oturum ortaktır; bildirildiğinde haftalık değer Fable’a özeldir."
+    },
+    "quota_backend": {
+      "label": "Kota kaynağı",
+      "description": "Kota toplayıcısını seçin. Shuvquota paylaşılan yerel HTTP hizmetini kullanır.",
+      "option": {
+        "ai_usagebar": "AIUsageBar (varsayılan)",
+        "shuvquota": "Shuvquota (deneysel)"
+      }
+    },
+    "shuvquota_url": {
+      "label": "Shuvquota toplayıcı URL adresi",
+      "description": "localhost, 127.0.0.1 veya [::1] kullanan, isteğe bağlı bağlantı noktalı yerel HTTP temel adresi."
+    },
+    "account": {
+      "label": "Hesap etiketi",
+      "description": "Seçilen toplayıcıdaki isteğe bağlı hesap etiketi. Sağlayıcı seçimi için boş bırakın; Otomatik modda yok sayılır."
+    },
+    "refresh_minutes": {
+      "label": "Yenileme aralığı (dakika)",
+      "description": "Seçilen toplayıcının sorgulanma sıklığı. Geri sayımlar okumalar arasında yerel olarak ilerler."
     }
   },
   "ui": {
@@ -88,14 +108,24 @@
       "spawn_failed": "ai-usagebar başlatılamadı",
       "spawn_failed_hint": "ai-usagebar başlatılamadı",
       "timed_out": "ai-usagebar yanıt vermedi",
-      "timed_out_hint": "Bağlantıyı ve sağlayıcının durumunu kontrol edip yeniden deneyin. Sorgular yavaş kalırsa ayarlardaki kota sorgusu zaman aşımını artırın."
+      "timed_out_hint": "Bağlantıyı ve sağlayıcının durumunu kontrol edip yeniden deneyin. Sorgular yavaş kalırsa ayarlardaki kota sorgusu zaman aşımını artırın.",
+      "collector_unavailable": "Shuvquota kullanılamıyor",
+      "collector_unavailable_hint": "Toplayıcıyı systemctl --user start shuvquota.service ile başlatın ve URL adresini kontrol edin.",
+      "collector_http": "Shuvquota bir HTTP hatası döndürdü",
+      "collector_http_hint": "Hizmet günlüklerini kontrol edip yeniden deneyin. Kota kaynağı değiştirilmedi.",
+      "collector_schema": "Desteklenmeyen veya geçersiz Shuvquota raporu",
+      "collector_schema_hint": "Uyumlu bir Shuvquota hizmetinden tamamlanmış şema 2 raporu kullanın.",
+      "collector_url": "Geçersiz Shuvquota URL adresi",
+      "collector_url_hint": "http://127.0.0.1:4789 gibi bir HTTP geri döngü adresi kullanın.",
+      "collector_timeout": "Shuvquota isteği zaman aşımına uğradı",
+      "collector_timeout_hint": "Yerel toplayıcı 30 saniyede tamamlamadı. Hizmeti kontrol edip yeniden deneyin."
     },
     "hidden_label": "Gösterilmiyor",
     "hidden_value": "{count} tane daha, paneli açmak için tıklayın",
     "loading": "Yükleniyor…",
     "no_providers": "Yapılandırılmış veya erişilebilir sağlayıcı yok",
     "no_usage": "Kullanım bildirilmedi",
-    "not_configured": "`{vendor}` ai-usagebar içinde yapılandırılmamış",
+    "not_configured": "`{vendor}` seçilen toplayıcıda yapılandırılmamış",
     "now": "şimdi",
     "retry": "Tekrar dene",
     "stale": "güncel değil",
@@ -132,7 +162,9 @@
         "schema": "ai-usagebar uygulamasını güncelleyin ve yenileyin. Sorun sürerse yanıt biçimi hatasını bildirin.",
         "local_server": "Antigravity veya bir agy oturumu açın, gerekirse oturum açın ve yenileyin.",
         "credentials": "ai-usagebar içindeki kayıtlı kimlik bilgilerini ve dosya izinlerini kontrol edin ve yenileyin.",
-        "unknown": "Yenileyin; sorun sürerse sağlayıcının durumunu kontrol edin."
+        "unknown": "Yenileyin; sorun sürerse sağlayıcının durumunu kontrol edin.",
+        "shuvquota": "{account} hesabında Shuvquota CLI ile yeniden oturum açın.",
+        "collector_schema": "Shuvquota uygulamasını güncelleyip yenileyin. Hata sürerse yanıt biçimini kontrol edin."
       },
       "copy_command": "Oturum açma komutunu kopyala",
       "recommended_action": "Önerilen işlem"

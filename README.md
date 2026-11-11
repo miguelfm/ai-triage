@@ -4,7 +4,16 @@
 
 AI Triage is an intelligent AI quota monitoring, smart routing, and rolling session triage plugin for the Noctalia Wayland shell.
 
-Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
+Using [ai-usagebar](https://github.com/akitaonrails/ai-usagebar) by default, AI Triage elevates quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming. An optional [Shuvquota](https://github.com/shuv1337/shuvquota) backend reads the shared local collector API.
+
+**Version 1.12.0 adds an experimental Shuvquota backend.**
+Select **Quota source → Shuvquota (experimental)** and set the local collector
+URL, normally `http://127.0.0.1:4789`. Codex, Claude/Fable, and Antigravity's
+Gemini/Claude-GPT pools are normalized into the existing triage engine. The
+default remains AIUsageBar. Reports, reset histories and calibration are isolated
+by collector; failed reads never switch sources automatically. Fractional quota
+readings retain their precision in calculations and display rounded percentages.
+See [setup, supported data, limitations and checks](docs/shuvquota.md).
 
 **Version 1.11.0 fixes panels frozen after exceeding Noctalia's CPU budget.**
 Closed panels no longer rebuild on data notifications. While open, changes are
@@ -110,7 +119,7 @@ Claude sign-in command. See the [diagnostic behavior and validation](docs/ai_usa
 
 ## Requirements
 
-Install `ai-usagebar` on `PATH`. The plugin runs it by name and has no separate
+For the default backend, install `ai-usagebar` on `PATH`. The plugin runs it by name and has no separate
 path setting. It ships as `ai-usagebar-bin` on the AUR, and as release
 tarballs on the project's GitHub Releases page. Configure your providers once in
 `~/.config/ai-usagebar/config.toml`; the CLI manages credentials and provider
@@ -125,6 +134,11 @@ The poller also requires coreutils `timeout`: quota reads may take up to three
 minutes by default, allowing Antigravity's 90-second cold startup. Increase the
 advanced query timeout for many accounts. See the [compatibility audit](docs/ai_usagebar_compatibility.md)
 for coverage, limitations and repeatable checks.
+
+Alternatively, configure the Shuvquota service and select it in plugin settings.
+That mode uses Noctalia's native HTTP client and does not require `ai-usagebar`.
+Collector-specific dependencies are checked at runtime; the manifest declares
+only shared shell helpers. See the [Shuvquota guide](docs/shuvquota.md).
 
 When the CLI is missing or provider dashboards are clicked, the panel opens URLs
 with `xdg-open`. Install `xdg-open` alongside `ai-usagebar`.
@@ -195,8 +209,10 @@ Plugin-level settings (shared across poller, capsules, and panel):
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `refresh_minutes` | `int` | `5` | Minutes between CLI calls (1 to 120). Countdowns tick locally in between. |
-| `query_timeout_seconds` | `int` | `180` | *(Advanced)* Maximum wait for a quota report (30 to 600 seconds). Includes all providers and accounts. |
+| `quota_backend` | `select` | `ai-usagebar` | Quota source: `ai-usagebar` or experimental `shuvquota`. |
+| `shuvquota_url` | `string` | `http://127.0.0.1:4789` | Shuvquota HTTP base URL on loopback; visible when Shuvquota is selected. |
+| `refresh_minutes` | `int` | `5` | Minutes between collector reads (1 to 120). Countdowns tick locally in between. |
+| `query_timeout_seconds` | `int` | `180` | *(Advanced)* AIUsageBar report timeout (30 to 600 seconds). Shuvquota HTTP reads have a 30-second deadline. |
 | `font_scale` | `select` | `"normal"` | Typographic scale preset across panel and bar (`compact` 85%, `normal` 100%, `large` 115%, `huge` 130%). |
 | `schedule_aware_triage` | `bool` | `true` | Pace quota consumption against active working hours (discounting sleep and meals). |
 | `sleep_start_hour` | `double` | `0` | Weekday off-hours start (0 to 23.5, half-hour steps). Visible when schedule-aware triage is enabled. |
@@ -262,6 +278,7 @@ for test in tests/*_test.lua; do
   TZ=America/New_York lua "$test" || exit
 done
 python tests/check_ai_usagebar.py
+python tests/check_shuvquota.py
 noctalia plugins lint .
 ```
 
@@ -269,6 +286,8 @@ Add `--live` to the Python command to query configured providers and exercise
 their real reports through the poller and bar/panel test hosts. The
 [compatibility audit](docs/ai_usagebar_compatibility.md) records the tested
 versions, corrections and coverage limits.
+`python tests/check_shuvquota.py --live` additionally checks the running local
+collector through the actual adapter, poller, bar and panel in mocked hosts.
 
 ## License
 

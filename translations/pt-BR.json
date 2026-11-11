@@ -42,7 +42,7 @@
       "label": "Prestadores na cápsula"
     },
     "refresh_minutes": {
-      "description": "Com que frequência a CLI é solicitada para obter dados de uso atualizados. As contagens regressivas são processadas localmente entre as chamadas.",
+      "description": "Frequência de consulta ao coletor selecionado. As contagens regressivas avançam localmente entre leituras.",
       "label": "Intervalo de atualização (minutos)"
     },
     "schedule_aware_triage": {
@@ -166,7 +166,23 @@
     },
     "query_timeout_seconds": {
       "label": "Tempo limite da consulta de cotas (segundos)",
-      "description": "Tempo máximo de espera por todos os provedores. Aumente para muitas contas ou inicialização lenta do Antigravity."
+      "description": "Espera máxima por um relatório AIUsageBar (30–600 segundos). As consultas HTTP ao Shuvquota têm limite de 30 segundos."
+    },
+    "quota_backend": {
+      "label": "Fonte das cotas",
+      "description": "Escolha o coletor de cotas. Shuvquota usa seu serviço HTTP local compartilhado.",
+      "option": {
+        "ai_usagebar": "AIUsageBar (padrão)",
+        "shuvquota": "Shuvquota (experimental)"
+      }
+    },
+    "shuvquota_url": {
+      "label": "URL do coletor Shuvquota",
+      "description": "URL HTTP local usando localhost, 127.0.0.1 ou [::1], opcionalmente com uma porta."
+    },
+    "account": {
+      "label": "Rótulo da conta",
+      "description": "Rótulo opcional da conta no coletor selecionado. Deixe vazio para selecionar o provedor; ignorado no modo Automático."
     }
   },
   "ui": {
@@ -182,14 +198,24 @@
       "spawn_failed": "Não foi possível iniciar o ai-usagebar",
       "spawn_failed_hint": "O processo nunca foi iniciado. Tente novamente em instantes.",
       "timed_out": "ai-usagebar não respondeu",
-      "timed_out_hint": "Verifique a conexão e a disponibilidade do provedor e tente novamente. Aumente o tempo limite da consulta de cotas nas configurações se as leituras continuarem lentas."
+      "timed_out_hint": "Verifique a conexão e a disponibilidade do provedor e tente novamente. Aumente o tempo limite da consulta de cotas nas configurações se as leituras continuarem lentas.",
+      "collector_unavailable": "Shuvquota indisponível",
+      "collector_unavailable_hint": "Inicie o coletor com systemctl --user start shuvquota.service e confira a URL.",
+      "collector_http": "Shuvquota retornou um erro HTTP",
+      "collector_http_hint": "Confira os registros do serviço e tente novamente. A fonte das cotas não foi alterada.",
+      "collector_schema": "Relatório Shuvquota inválido ou incompatível",
+      "collector_schema_hint": "Use um relatório completo com esquema 2 de um serviço Shuvquota compatível.",
+      "collector_url": "URL do Shuvquota inválida",
+      "collector_url_hint": "Use um endereço HTTP de loopback, como http://127.0.0.1:4789.",
+      "collector_timeout": "Tempo de consulta ao Shuvquota esgotado",
+      "collector_timeout_hint": "O coletor não concluiu em 30 segundos. Confira o serviço e tente novamente."
     },
     "hidden_label": "Não exibido",
     "hidden_value": "Mais {count}, clique para abrir o painel",
     "loading": "Carregando…",
     "no_providers": "Nenhum provedor configurado ou acessível",
     "no_usage": "Nenhum uso registrado",
-    "not_configured": "`{vendor}` não está configurado no ai-usagebar",
+    "not_configured": "`{vendor}` não está configurado no coletor selecionado",
     "now": "agora",
     "retry": "Tente novamente",
     "stale_hint": "exibindo os últimos dados conhecidos",
@@ -223,7 +249,9 @@
         "schema": "Atualize o ai-usagebar e consulte novamente. Se persistir, reporte o erro no formato da resposta.",
         "local_server": "Abra o Antigravity ou uma sessão do agy, entre na conta se necessário e atualize.",
         "credentials": "Verifique as credenciais salvas e as permissões dos arquivos no ai-usagebar e atualize.",
-        "unknown": "Atualize e verifique o estado do provedor se o problema persistir."
+        "unknown": "Atualize e verifique o estado do provedor se o problema persistir.",
+        "shuvquota": "Autentique novamente a conta {account} pela CLI do Shuvquota.",
+        "collector_schema": "Atualize o Shuvquota e tente novamente. Confira o formato da resposta se o erro persistir."
       },
       "copy_command": "Copiar comando de login",
       "recommended_action": "Ação recomendada"

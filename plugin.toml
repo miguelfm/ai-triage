@@ -1,22 +1,40 @@
 id = "miguelfm/ai-triage"
 name = "AI Triage"
-version = "1.11.0"
+version = "1.12.0"
 plugin_api = 43
 author = "miguelfm"
 license = "MIT"
 icon = "scale"
 description = "AI quota triage, smart model routing and rolling window kickstarting."
 tags = ["bar", "panel", "ai", "indicator", "utility"]
-# The CLI owns credentials, vendor endpoints and caching. This plugin only runs
-# `ai-usagebar usage --json` and draws the result.
+# Quota credentials belong to the selected external collector. AIUsageBar is the
+# default; Shuvquota is an optional local HTTP backend. Validate the selected
+# backend at runtime instead of requiring both collectors for every install.
 # Optional backend CLIs for `bin/ai-kickstart`: `claude`, `codex`, `agy`.
 # Note: ai-usagebar must query production `cloudcode-pa.googleapis.com` to report
 # Antigravity's Gemini quota buckets alongside Claude & GPT OSS.
-dependencies = ["ai-usagebar", "xdg-open", "timeout"]
+dependencies = ["xdg-open", "timeout"]
 
 # ── Plugin-level settings (shared by the poller, every capsule and the panel) ──
 
-# No path setting: `ai-usagebar` is a declared dependency, so it is on PATH.
+[[setting]]
+key = "quota_backend"
+type = "select"
+label_key = "settings.quota_backend.label"
+description_key = "settings.quota_backend.description"
+default = "ai-usagebar"
+options = [
+  { value = "ai-usagebar", label_key = "settings.quota_backend.option.ai_usagebar" },
+  { value = "shuvquota", label_key = "settings.quota_backend.option.shuvquota" },
+]
+
+[[setting]]
+key = "shuvquota_url"
+type = "string"
+label_key = "settings.shuvquota_url.label"
+description_key = "settings.shuvquota_url.description"
+default = "http://127.0.0.1:4789"
+visible_when = { key = "quota_backend", values = ["shuvquota"] }
 
 [[setting]]
 key = "refresh_minutes"

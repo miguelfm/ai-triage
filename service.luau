@@ -1,11 +1,13 @@
 --!nonstrict
--- Headless poller: the single owner of `ai-usagebar usage --json`. One call
--- returns every configured vendor, so the capsules and the panel are subscribers
--- of noctalia.state and never spawn a process of their own.
+-- Single quota reader. Subscribers consume the normalized report in state.
 
--- `ai-usagebar` is a declared dependency, so it is expected on PATH.
 local COMMAND = "ai-usagebar usage --json"
 local shared = require("./shared.luau")
+local shuvquota = nil
+local function shuvAdapter()
+    if not shuvquota then shuvquota = require("./shuvquota.luau") end
+    return shuvquota
+end
 
 local function getHeadlessDir()
     local pluginDir = (type(noctalia.pluginDir) == "function" and noctalia.pluginDir())
@@ -202,6 +204,7 @@ end
 -- panel offers an install link for it. 127 is the shell's "command not found".
 local function classify(result)
     if result == nil then return failure("spawn_failed") end
+    if result.backendFailure then return failure(result.backendFailure, result.stderr) end
     if result.timedOut then return failure("timed_out") end
 
     local stderr = tostring(result.stderr or "")
@@ -217,6 +220,7 @@ local function classify(result)
 end
 
 local inFlight = false
+local lastStart = 0
 local pendingRefresh = false
 local retryCount = 0
 local RETRY_BASE_MS = 8000
@@ -226,22 +230,54 @@ local weeklyHistory = {}
 local weeklyHistoryPath = nil
 local weeklyDataDir = nil
 local cachedReportPath = nil
-pcall(function()
-    weeklyDataDir = noctalia.pluginDataDir()
-    weeklyHistoryPath = weeklyDataDir .. "/weekly-resets.json"
-    cachedReportPath = weeklyDataDir .. "/last-report.json"
-    local saved = noctalia.json.decode(noctalia.readFile(weeklyHistoryPath) or "")
-    if type(saved) == "table" and saved.version == 1 then weeklyHistory = saved end
+local sourceKey, sourceBackend, sourceEndpoint = nil, nil, nil
+local sourceEpoch, requestSerial = 0, 0
 
-    local rawReport = noctalia.readFile(cachedReportPath)
-    if type(rawReport) == "string" and rawReport ~= "" then
-        local savedReport = noctalia.json.decode(rawReport)
+local function activateSource()
+    local backend = noctalia.getConfig("quota_backend") == "shuvquota" and "shuvquota" or "ai-usagebar"
+    local endpoint, key = nil, "ai-usagebar"
+    if backend == "shuvquota" then
+        endpoint, key = shuvAdapter().endpoint(noctalia.getConfig("shuvquota_url"))
+        key = key or "shuvquota-invalid"
+    end
+    if key == sourceKey then return end
+    sourceKey, sourceBackend, sourceEndpoint = key, backend, endpoint
+    sourceEpoch, requestSerial = sourceEpoch + 1, requestSerial + 1
+    inFlight, pendingRefresh, retryCount, lastStart = false, false, 0, 0
+    weeklyHistory, weeklyHistoryPath, cachedReportPath, weeklyDataDir = {}, nil, nil, nil
+    noctalia.state.set("report", nil)
+    noctalia.state.set("error", failure(""))
+    noctalia.state.set("polling", false)
+    noctalia.state.set("refresh_queued", false)
+    local suffix = backend == "shuvquota" and ("." .. key) or ""
+    pcall(function()
+        weeklyDataDir = noctalia.pluginDataDir()
+        weeklyHistoryPath = weeklyDataDir .. "/weekly-resets" .. suffix .. ".json"
+        cachedReportPath = weeklyDataDir .. "/last-report" .. suffix .. ".json"
+        local saved = noctalia.json.decode(noctalia.readFile(weeklyHistoryPath) or "")
+        if type(saved) == "table" and saved.version == 1 then weeklyHistory = saved end
+        local savedReport = noctalia.json.decode(noctalia.readFile(cachedReportPath) or "")
         if type(savedReport) == "table" and savedReport.version == 1
-            and type(savedReport.report) == "table" and type(savedReport.report.entries) == "table" then
+            and type(savedReport.report) == "table" and type(savedReport.report.entries) == "table"
+            and (savedReport.report.collector_scope == key
+                or (backend == "ai-usagebar" and savedReport.report.collector_scope == nil)) then
+            if backend == "shuvquota" then
+                for _, entry in ipairs(savedReport.report.entries) do
+                    entry.stale, entry.status, entry.error = true, "error", "Cached Shuvquota reading; waiting for refresh"
+                end
+            end
             noctalia.state.set("report", savedReport.report)
         end
+    end)
+    weeklyHistory.version = 1
+    weeklyHistory.pending_events = type(weeklyHistory.pending_events) == "table" and weeklyHistory.pending_events or {}
+    if not weeklyHistory.archive_initialized then
+        for _, record in ipairs(type(weeklyHistory.events) == "table" and weeklyHistory.events or {}) do
+            weeklyHistory.pending_events[#weeklyHistory.pending_events + 1] = record
+        end
+        weeklyHistory.archive_initialized = true
     end
-end)
+end
 
 local function historyLog(message)
     if type(noctalia.log) == "function" then pcall(noctalia.log, "AI Triage: " .. message) end
@@ -258,14 +294,6 @@ end
 -- The small working history is not the audit log. Archive each change in its
 -- own JSON file, with a persistent outbox so failed writes are retried. Import
 -- the existing v1 events once, preserving missing legacy fields as unknown.
-weeklyHistory.version = 1
-weeklyHistory.pending_events = type(weeklyHistory.pending_events) == "table" and weeklyHistory.pending_events or {}
-if not weeklyHistory.archive_initialized then
-    for _, record in ipairs(type(weeklyHistory.events) == "table" and weeklyHistory.events or {}) do
-        weeklyHistory.pending_events[#weeklyHistory.pending_events + 1] = record
-    end
-    weeklyHistory.archive_initialized = true
-end
 
 local function archiveWeeklyEvents()
     local pending = {}
@@ -278,6 +306,7 @@ local function archiveWeeklyEvents()
                 weeklyHistory.archive_sequence = (tonumber(weeklyHistory.archive_sequence) or 0) + 1
                 record.archive_id = os.date("!%Y%m%dT%H%M%SZ", record.change.at)
                     .. "-" .. tostring(weeklyHistory.archive_sequence)
+                if sourceBackend == "shuvquota" then record.archive_id = sourceKey .. "-" .. record.archive_id end
             end
             local change = record.change
             local payload = { version = 1, provider = record.provider, window = record.window,
@@ -356,7 +385,6 @@ end
 -- A floor between spawns. Opening the panel asks for a read, and a panel opens as
 -- fast as a pointer can click.
 local MIN_GAP_MS = 2000
-local lastStart = 0
 
 local function queueRefresh()
     pendingRefresh = true
@@ -539,6 +567,7 @@ local function enrichAntigravity(report, callback)
 end
 
 local function refresh()
+    activateSource()
     if inFlight then
         queueRefresh()
         return
@@ -552,18 +581,36 @@ local function refresh()
     pendingRefresh = false
     noctalia.setUpdateInterval(intervalMs())
     inFlight = true
+    requestSerial = requestSerial + 1
+    local serial, epoch = requestSerial, sourceEpoch
     noctalia.state.set("refresh_queued", false)
     noctalia.state.set("polling", true)
 
-    local started = runQuery(function(result)
-        local decoded = result ~= nil and not result.timedOut
-            and noctalia.json.decode(result.stdout or "") or nil
+    local completed = false
+    local function complete(result)
+        if completed or serial ~= requestSerial or epoch ~= sourceEpoch then return end
+        completed = true
+        local decoded = nil
+        if result ~= nil and not result.timedOut and not result.backendFailure then
+            local ok, value = pcall(noctalia.json.decode, result.stdout or "")
+            if ok then decoded = value end
+        end
+        if sourceBackend == "shuvquota" and decoded then
+            local ok, normalized, detail = pcall(shuvAdapter().normalize, decoded, sourceKey, os.time(),
+                math.max(900, intervalMs() / 500))
+            if not ok then normalized, detail = nil, "Invalid collector snapshot" end
+            decoded = normalized
+            if not normalized then result = { backendFailure = "collector_schema", stderr = detail } end
+        elseif sourceBackend == "shuvquota" and result and not result.backendFailure then
+            result = { backendFailure = "collector_schema", stderr = "Invalid collector JSON" }
+        end
         if type(decoded) == "table" and type(decoded.entries) == "table" then
             -- A failed vendor still comes back as an entry with `status = "error"`,
             -- so a non-zero exit is no reason to drop the report.
             local safeReport = scrub(decoded)
-            keepAntigravityReading(safeReport)
-            enrichAntigravity(safeReport, function(finalReport)
+            safeReport.collector_scope = sourceKey
+            local function publish(finalReport)
+                if serial ~= requestSerial or epoch ~= sourceEpoch then return end
                 trackWeeklyResets(finalReport)
                 if cachedReportPath then
                     pcall(function()
@@ -577,7 +624,25 @@ local function refresh()
                 noctalia.state.set("error", failure(""))
                 scheduleNextRefresh(finalReport)
                 if pendingRefresh then refresh() end
-            end)
+            end
+            if sourceBackend == "shuvquota" then
+                local previous = noctalia.state.get("report")
+                for _, entry in ipairs(safeReport.entries) do
+                    if entry.status == "error" then
+                        for _, old in ipairs(type(previous) == "table" and previous.entries or {}) do
+                            if old.id == entry.id and old.collector_scope == entry.collector_scope
+                                and type(old.metrics) == "table" and #old.metrics > 0 then
+                                entry.metrics, entry.fetched_at, entry.stale = old.metrics, old.fetched_at, true
+                                break
+                            end
+                        end
+                    end
+                end
+                publish(safeReport)
+            else
+                keepAntigravityReading(safeReport)
+                enrichAntigravity(safeReport, publish)
+            end
             return
         else
             inFlight = false
@@ -587,7 +652,31 @@ local function refresh()
         end
 
         if pendingRefresh then refresh() end
-    end)
+    end
+
+    local started
+    if sourceBackend == "shuvquota" then
+        if not sourceEndpoint then
+            complete({ backendFailure = "collector_url" })
+            return
+        end
+        -- Native HTTP currently has a 30-second host deadline. A lightweight
+        -- service tick also releases the guard if a callback is lost.
+        noctalia.setUpdateInterval(1000)
+        if type(noctalia.http) == "function" then
+            local ok, accepted = pcall(noctalia.http, { url = sourceEndpoint, headers = { "Accept: application/json" },
+                follow_redirects = false }, function(response)
+                if not response or not response.ok then
+                    complete({ backendFailure = "collector_unavailable" })
+                elseif response.status ~= 200 then
+                    complete({ backendFailure = "collector_http", stderr = "HTTP " .. tostring(response.status) })
+                elseif type(response.body) ~= "string" or #response.body > 1048576 then
+                    complete({ backendFailure = "collector_schema", stderr = "Invalid or oversized collector response" })
+                else complete({ stdout = response.body }) end
+            end)
+            started = ok and accepted
+        end
+    else started = runQuery(complete) end
 
     -- A refusal to spawn never calls back, and the poller would sit in flight
     -- forever.
@@ -596,7 +685,7 @@ local function refresh()
         pendingRefresh = false
         noctalia.state.set("refresh_queued", false)
         noctalia.state.set("polling", false)
-        noctalia.state.set("error", failure("spawn_failed"))
+        noctalia.state.set("error", failure(sourceBackend == "shuvquota" and "collector_unavailable" or "spawn_failed"))
         scheduleFailureRetry(noctalia.state.get("report"))
     end
 end
@@ -628,7 +717,17 @@ end)
 function update()
     checkPanelHealth()
     -- A read in flight answers on its own callback; the tick only starts them.
-    if inFlight then return end
+    if inFlight then
+        if sourceBackend == "shuvquota" and noctalia.nowMs() - lastStart >= 30000 then
+            requestSerial = requestSerial + 1
+            inFlight, pendingRefresh = false, false
+            noctalia.state.set("polling", false)
+            noctalia.state.set("refresh_queued", false)
+            noctalia.state.set("error", failure("collector_timeout"))
+            scheduleFailureRetry(noctalia.state.get("report"))
+        end
+        return
+    end
     refresh()
 end
 

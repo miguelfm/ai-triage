@@ -302,7 +302,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
         local urgency = advice.urgency
         local summary = advice.summary
         if urgency then
-            summary = string.format("Claim before %s · ~%.1fh needed / %.1fh available · up to ~%d%% extra quota%s",
+            summary = string.format("Claim before %s · ~%.1fh needed / %.1fh available · up to ~%.0f%% extra quota%s",
                 os.date("%b %d %H:%M %Z", urgency.deadlineAt), urgency.neededHours, urgency.availableHours,
                 math.floor(advice.cycleGain + 0.5), urgency.feasible and "" or " · 95% may be unreachable in this window")
             summary = shared.resetCreditScopeSummary(advice, summary)
@@ -331,7 +331,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
         shouldThrottle = true
     elseif isWeekly and gearing <= 3.5 and percent >= 45 and remainingSecs > 172800 then
         shouldThrottle = true
-        throttleSummary = string.format("Conserve · High weekly impact (~%d sess/wk, 1 session = ~%d%% week)", math.floor(gearing + 0.5), math.floor(oneSessionPct + 0.5))
+        throttleSummary = string.format("Conserve · High weekly impact (~%d sess/wk, 1 session = ~%.0f%% week)", math.floor(gearing + 0.5), math.floor(oneSessionPct + 0.5))
     end
 
     if shouldThrottle then
@@ -343,7 +343,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
             bg = "error/0.18",
             border = "error/0.45",
             cardBorder = "error/0.45",
-            summary = throttleSummary or string.format("Heavy use · %d%% free remaining", remainingQuota),
+            summary = throttleSummary or string.format("Heavy use · %.0f%% free remaining", remainingQuota),
         }
     end
 
@@ -353,7 +353,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
         local H_s_active = calculateActiveHours(os.time(), os.time() + remainingSecs)
         if (H_s_active <= 1.50 or remainingSecs <= 5400) and remainingQuota >= 25 and remainingSecs > 0 then
             shouldBurn = true
-            burnSummary = string.format("Session expires soon (~%.1fh active) · %d%% free to use", H_s_active, remainingQuota)
+            burnSummary = string.format("Session expires soon (~%.1fh active) · %.0f%% free to use", H_s_active, remainingQuota)
         elseif remainingSecs <= 9000 and remainingQuota >= 45 and remainingSecs > 0 then
             shouldBurn = true
         elseif paceDiff >= 20 and remainingQuota >= 40 and isSessionStarted(metric) then
@@ -366,13 +366,13 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
 
         if (H_w_active <= 3.0 or remainingSecs <= 10800) and remainingQuota > 0 and remainingSecs > 0 then
             shouldBurn = true
-            burnSummary = string.format("Weekly reset in ~%.1fh! Burn remaining %d%% before reset", math.max(0.1, remainingSecs / 3600), remainingQuota)
+            burnSummary = string.format("Weekly reset in ~%.1fh! Burn remaining %.0f%% before reset", math.max(0.1, remainingSecs / 3600), remainingQuota)
         elseif (H_w_active <= 14.0 or remainingSecs <= 86400) and remainingQuota >= 5 and remainingSecs > 0 then
             shouldBurn = true
-            burnSummary = string.format("Weekly reset soon (~%.1fh active left) · %d%% quota will expire", H_w_active, remainingQuota)
+            burnSummary = string.format("Weekly reset soon (~%.1fh active left) · %.0f%% quota will expire", H_w_active, remainingQuota)
         elseif dutyCycle >= 0.85 and remainingQuota >= 20 and remainingSecs > 0 then
             shouldBurn = true
-            burnSummary = string.format("Session bottleneck: need ~%d sessions for %d%% weekly quota (~%ds/w)", math.floor(sessionsNeeded + 0.5), remainingQuota, math.floor(gearing + 0.5))
+            burnSummary = string.format("Session bottleneck: need ~%d sessions for %.0f%% weekly quota (~%ds/w)", math.floor(sessionsNeeded + 0.5), remainingQuota, math.floor(gearing + 0.5))
         elseif remainingSecs <= 172800 and remainingQuota >= 25 and remainingSecs > 0 then
             shouldBurn = true
         elseif remainingSecs <= 259200 and remainingQuota >= 35 and remainingSecs > 0 then
@@ -391,7 +391,7 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
             bg = "primary/0.18",
             border = "primary/0.45",
             cardBorder = "primary/0.45",
-            summary = burnSummary or string.format("%d%% free to use · %dpts under", remainingQuota, paceDiff),
+            summary = burnSummary or string.format("%.0f%% free to use · %.0fpts under", remainingQuota, paceDiff),
         }
     end
 
@@ -417,8 +417,8 @@ local function assessTriage(metric, percent, elapsedPct, windowLabel, item, stag
         bg = "secondary/0.14",
         border = "secondary/0.35",
         cardBorder = nil,
-        summary = string.format("%d%% free · %s", remainingQuota,
-            paceDiff >= 0 and string.format("%dpts under", paceDiff) or string.format("%dpts ahead", -paceDiff)),
+        summary = string.format("%.0f%% free · %s", remainingQuota,
+            paceDiff >= 0 and string.format("%.0fpts under", paceDiff) or string.format("%.0fpts ahead", -paceDiff)),
     }
 end
 
@@ -603,7 +603,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
     local tint = severityRole(metric, "on_surface")
     local fill = severityRole(metric, "primary")
     local value = tostring(metric.value or ""):gsub(" of ", " / ")
-    local showValue = value ~= "" and value ~= string.format("%d%%", percent)
+    local showValue = value ~= "" and value ~= string.format("%.0f%%", percent)
 
     local ksTarget = not isWeekly and kickstartTarget(item) or nil
     local ksTs = getKickstartedAt(ksTarget)
@@ -660,7 +660,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
         paddingH = 6, paddingV = 2, radius = 5, align = "center", justify = "center",
         fill = tint .. "/0.15",
     }, {
-        ui.label({ text = string.format("%d%%", percent), fontSize = fs(15),
+        ui.label({ text = string.format("%.0f%%", percent), fontSize = fs(15),
                    fontWeight = "bold", color = tint, textAlign = "center" }),
     })
 
@@ -720,9 +720,9 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
         local rightFlex = math.max(1, 100 - effectiveElapsed)
         local paceDiff = effectiveElapsed - percent
         local paceStatus = paceDiff >= 0
-            and string.format("+%d%% quota free", paceDiff)
-            or string.format("%d%% over pace", -paceDiff)
-        markerTip = string.format("Time: %d%% elapsed · Quota: %d%% used (%s)",
+            and string.format("+%.0f%% quota free", paceDiff)
+            or string.format("%.0f%% over pace", -paceDiff)
+        markerTip = string.format("Time: %.0f%% elapsed · Quota: %.0f%% used (%s)",
             effectiveElapsed, percent, paceStatus)
         markerColor = paceDiff >= 0 and "#38bdf8" or "#fb923c"
 
@@ -820,7 +820,7 @@ local function renderMetricCard(item, metric, windowLabel, staggerPlan, typo)
         if gearing then
             local oneSessionPct = math.floor((100.0 / gearing) + 0.5)
             local isStraddling = shared.isSessionStraddlingWeeklyReset(item)
-            local tipText = string.format("Gearing: ~%d full 5h sessions per week (1 session burns ~%d%% weekly quota%s%s)",
+            local tipText = string.format("Gearing: ~%d full 5h sessions per week (1 session burns ~%.0f%% weekly quota%s%s)",
                 math.floor(gearing + 0.5), oneSessionPct,
                 isCalibrated and " · calibrated from observed usage" or "",
                 isStraddling and " · session spans weekly renewal" or "")
@@ -1200,6 +1200,19 @@ local function renderColumns(candidates, typo)
     for _, credit in ipairs(resetCredits) do
         creditCards[#creditCards + 1] = renderCreditCard(credit, typo)
     end
+    for _, entry in ipairs(healthy) do
+        if entry.collector_backend == "shuvquota" then
+            for _, section in ipairs(entry.sections or {}) do
+                if section.label == "Scheduled resets" then
+                    creditCards[#creditCards + 1] = ui.column(cardStyle(4, nil, nil, 8), {
+                        ui.label({ text = tostring(entry.display_name) .. " · Scheduled resets",
+                            fontSize = fs(12), fontWeight = "semibold", color = "on_surface" }),
+                        ui.label({ text = section.value, fontSize = fs(11), color = "on_surface_variant" }),
+                    })
+                end
+            end
+        end
+    end
 
     local weeklySchedules = {}
     local seenWeekly = {}
@@ -1239,9 +1252,9 @@ local function renderColumns(candidates, typo)
         if leaderAdvice == nil then
             advanceStep = string.format("1. Advance %s: burn its weekly quota early and claim the reset once it runs out.", advanceName)
         elseif leaderAdvice.status == "claim" then
-            advanceStep = string.format("1. Claim %s's reset now: ~%d%% of a week back.", advanceName, math.floor(leaderAdvice.nowGain + 0.5))
+            advanceStep = string.format("1. Claim %s's reset now: ~%.0f%% of a week back.", advanceName, math.floor(leaderAdvice.nowGain + 0.5))
         elseif leaderAdvice.status == "advance" then
-            advanceStep = string.format("1. Advance %s now: burn the remaining %d%%, then claim · worth ~%d%% of a week.",
+            advanceStep = string.format("1. Advance %s now: burn the remaining %.0f%%, then claim · worth ~%.0f%% of a week.",
                 advanceName, math.floor(100 - leader.weeklyPercent + 0.5), math.floor(leaderAdvice.cycleGain + 0.5))
         elseif not leaderAdvice.lastChance then
             advanceStep = string.format("1. Advance %s after its renewal in %s: burn the new week early, then claim before %s.",
@@ -1400,7 +1413,7 @@ local function renderColumns(candidates, typo)
                     }),
                 }),
                 ui.label({
-                    text = string.format("%s resets in %s (%s) · %d%% unused quota will expire!",
+                    text = string.format("%s resets in %s (%s) · %.0f%% unused quota will expire!",
                         ws.name, timeStr, dateStr, ws.free),
                     fontSize = fs(11), color = "on_surface",
                 }),

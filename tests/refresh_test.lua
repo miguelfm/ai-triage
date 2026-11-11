@@ -273,6 +273,10 @@ env.onIpc("refresh")
 callbacks[#callbacks]({ exitCode = 1, stdout = "", stderr = "Could not resolve host" })
 assert(intervals[#intervals] == 8000, "first network failure must retry in 8s")
 callbacks[#callbacks]({ exitCode = 1, stdout = "", stderr = "Could not resolve host" })
+assert(intervals[#intervals] == 8000, "duplicate completion callbacks must not count as another failure")
+now = now + 8000
+env.update()
+callbacks[#callbacks]({ exitCode = 1, stdout = "", stderr = "Could not resolve host" })
 assert(intervals[#intervals] == 16000, "second failure must retry in 16s")
 
 -- A successful refresh resets the retry counter back to 0

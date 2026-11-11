@@ -1,7 +1,7 @@
 {
   "settings": {
     "account": {
-      "description": "Optional named account label from ai-usagebar. Leave empty for the default account. Ignored when the provider is Automatic.",
+      "description": "Optional account label from the selected collector. Leave empty for provider selection; ignored when the provider is Automatic.",
       "label": "Account label"
     },
     "color_by_usage": {
@@ -46,7 +46,7 @@
       "label": "Providers in the capsule"
     },
     "refresh_minutes": {
-      "description": "How often the CLI is asked for fresh usage. Countdowns tick locally between calls.",
+      "description": "How often the selected collector is queried. Countdowns tick locally between reads.",
       "label": "Refresh interval (minutes)"
     },
     "schedule_aware_triage": {
@@ -178,7 +178,19 @@
     },
     "query_timeout_seconds": {
       "label": "Quota query timeout (seconds)",
-      "description": "Maximum time to wait for all providers. Increase for many accounts or slow Antigravity startup."
+      "description": "Maximum wait for an AIUsageBar report (30–600 seconds). Shuvquota HTTP reads have a 30-second deadline."
+    },
+    "quota_backend": {
+      "label": "Quota source",
+      "description": "Choose the quota collector. Shuvquota uses its shared local HTTP service.",
+      "option": {
+        "ai_usagebar": "AIUsageBar (default)",
+        "shuvquota": "Shuvquota (experimental)"
+      }
+    },
+    "shuvquota_url": {
+      "label": "Shuvquota collector URL",
+      "description": "Local HTTP base URL using localhost, 127.0.0.1, or [::1], optionally with a port."
     }
   },
   "ui": {
@@ -194,7 +206,17 @@
       "spawn_failed": "Could not start ai-usagebar",
       "spawn_failed_hint": "The process never started. Try again in a moment.",
       "timed_out": "ai-usagebar did not answer",
-      "timed_out_hint": "Check the connection and provider availability, then try again. Increase the quota query timeout in settings if reads remain slow."
+      "timed_out_hint": "Check the connection and provider availability, then try again. Increase the quota query timeout in settings if reads remain slow.",
+      "collector_unavailable": "Shuvquota is unavailable",
+      "collector_unavailable_hint": "Start the local collector with systemctl --user start shuvquota.service and check its URL.",
+      "collector_http": "Shuvquota returned an HTTP error",
+      "collector_http_hint": "Check the collector service logs and try again. The quota source has not changed.",
+      "collector_schema": "Unsupported or invalid Shuvquota report",
+      "collector_schema_hint": "Use a completed schema-2 snapshot from a compatible Shuvquota service.",
+      "collector_url": "Invalid Shuvquota URL",
+      "collector_url_hint": "Use an HTTP loopback address such as http://127.0.0.1:4789.",
+      "collector_timeout": "Shuvquota request timed out",
+      "collector_timeout_hint": "The local collector did not complete within 30 seconds. Check the service and retry."
     },
     "hidden_label": "Not shown",
     "hidden_value": "{count} more, click to open the panel",
@@ -204,7 +226,7 @@
     "loading": "Loading…",
     "no_providers": "No providers configured or reachable",
     "no_usage": "No usage reported",
-    "not_configured": "`{vendor}` is not configured in ai-usagebar",
+    "not_configured": "`{vendor}` is not configured in the selected collector",
     "now": "now",
     "plan_changed": "The plan changed; readings taken under the previous one were dropped.",
     "quota_exhausted": "Quota exhausted",
@@ -254,7 +276,9 @@
         "schema": "Update ai-usagebar and refresh. If it persists, report the response format error.",
         "local_server": "Open Antigravity or an agy session, sign in if needed, then refresh.",
         "credentials": "Check the saved credentials and file permissions in ai-usagebar, then refresh.",
-        "unknown": "Refresh and check the provider’s status if the problem persists."
+        "unknown": "Refresh and check the provider’s status if the problem persists.",
+        "shuvquota": "Reauthenticate account {account} with the Shuvquota CLI.",
+        "collector_schema": "Update Shuvquota and refresh. Check the collector response format if the error persists."
       },
       "copy_command": "Copy sign-in command",
       "recommended_action": "Recommended action"

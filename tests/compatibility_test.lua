@@ -15,8 +15,8 @@ local function clone(value)
     return out
 end
 
-local function host(report, config)
-    local values, watchers, runs = { report = report }, {}, {}
+local function host(report, config, shuvDocument)
+    local values, watchers, runs, logs = { report = report }, {}, {}, {}
     local bar, tooltip, tree
     local noctalia = {
         getConfig = function(key) return (config or {})[key] end,
@@ -27,8 +27,13 @@ local function host(report, config)
         commandExists = function() return false end,
         formatTime = function(fmt, at) return os.date(fmt, at) end,
         timeFormat = function() return "%H:%M" end,
+        log = function(message) logs[#logs + 1] = message end,
         togglePanel = function() end,
-        json = { decode = function() return clone(report) end },
+        json = { decode = function(raw) return clone(raw == "shuvquota" and shuvDocument or report) end },
+        http = function(request, callback)
+            runs[#runs + 1] = { request = request, callback = callback }
+            return true
+        end,
         runAsync = function(command, callback, timeout)
             runs[#runs + 1] = { command = command, callback = callback, timeout = timeout }
             return true
@@ -70,9 +75,13 @@ local function host(report, config)
         },
     }, { __index = _G })
     local shared = assert(load(source("shared.luau"), "shared", "t", env))()
-    env.require = function(path) assert(path == "./shared.luau") return shared end
+    env.require = function(path)
+        if path == "./shared.luau" then return shared end
+        assert(path == "./shuvquota.luau")
+        return assert(load(source("shuvquota.luau"), "shuvquota", "t", env))()
+    end
     return {
-        env = env, shared = shared, values = values, runs = runs,
+        env = env, shared = shared, values = values, runs = runs, logs = logs,
         load = function(path) assert(load(source(path), path, "t", env))() end,
         tooltip = function() return tooltip end,
         tree = function() return tree end,
@@ -226,24 +235,48 @@ assert(h.tooltip()[1].value == "ui.diagnostic.cause.rate_limited"
     and h.tooltip()[3].value == "HTTP 429: Rate limited",
     "the failed query must show a cause, an action and its original detail")
 
+-- Future collector grants appear as information without becoming available credits.
+local scheduled = assert(loadfile("tests/fixtures/shuvquota_2.lua"))()
+scheduled.generatedAt = os.date("!%Y-%m-%dT%H:%M:%SZ")
+local futureGrant = scheduled.providers[2].accounts[1].extras[2].reset
+futureGrant.startsAt = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 86400)
+futureGrant.expiresAt = os.date("!%Y-%m-%dT%H:%M:%SZ", os.time() + 172800)
+h = host(nil)
+local scheduledReport = assert(h.env.require("./shuvquota.luau").normalize(scheduled, "test"))
+h = host(scheduledReport)
+h.load("panel.luau")
+h.env.onOpen()
+assert(hasText(h.tree(), "Claude · personal · Scheduled resets"))
+assert(hasText(h.tree(), "1 Fable reset · from " .. futureGrant.startsAt))
+assert(#scheduledReport.entries[2].reset_credits.credits <= 1,
+    "scheduled grants must not be spendable")
+
 -- End-to-end rendering with a real report, optionally supplied by the Python
 -- runner. The injected decoder hands the CLI document to the actual poller.
 if arg[1] then
-    local report = assert(loadfile(arg[1]))()
+    local document = assert(loadfile(arg[1]))()
+    local isShuvquota = arg[2] == "shuvquota"
+    local report = isShuvquota and assert(host({}).env.require("./shuvquota.luau").normalize(document,
+        "shuvquota-127-0-0-1-4789")) or document
     assert(report.schema_version == 1, "unexpected usage schema")
     for _, entry in ipairs(report.entries) do
         local vendor, account = entry.id:match("^([^@]+)@(.+)$")
         vendor = vendor or entry.id
-        h = host(report, { vendor = vendor, account = account })
+        h = host(report, { vendor = vendor, account = account, show_claude_fable = true,
+            quota_backend = isShuvquota and "shuvquota" or nil }, isShuvquota and document or nil)
         h.load("bar.luau")
         h.load("panel.luau")
         h.load("service.luau")
-        h.runs[1].callback({ exitCode = 0, stdout = "{}" })
+        h.runs[1].callback(isShuvquota and { ok = true, status = 200, body = "shuvquota" }
+            or { exitCode = 0, stdout = "{}" })
         -- Complete the optional Cloud Code reconciliation without making a
         -- second live call; the external CLI already supplied the report.
         if h.runs[2] then h.runs[2].callback({ exitCode = 1 }) end
+        if h.env.onOpen then h.env.onOpen() end
         assert(h.values.error.code == "" and h.values.polling == false, "poller must publish the CLI report")
-        assert(h.bar() and h.tree() and #h.tooltip() > 0, "CLI entries must render in both surfaces")
+        assert(h.bar() and h.tree() and #h.tooltip() > 0, "collector entry must render in both surfaces: "
+            .. entry.id .. " bar=" .. tostring(h.bar() ~= nil) .. " panel=" .. tostring(h.tree() ~= nil)
+            .. " tooltip=" .. tostring(h.tooltip() and #h.tooltip()) .. " " .. table.concat(h.logs, "; "))
     end
 end
 io.write("ok: 1.47 contract, Droid/DeepRelay selection/rendering, partial quotas, amounts, accounts, reset inventories, timeout and diagnostics\n")
