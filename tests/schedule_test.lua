@@ -40,12 +40,36 @@ close(shared.calculateActiveHours(at(12, 23), at(13, 8.5), cfg, true), 2,
 close(shared.calculateActiveHours(at(12, 23), at(13, 8.5), cfg, false), 0.25,
     "inactive nights must not receive an awake burst")
 local timezone = os.getenv("TZ")
+-- Render-local caching must preserve the numerical floor, availability flags
+-- and independent configurations, then release everything at frame end.
+local start, finish = at(12, 23), at(13, 8.5)
+local active = shared.calculateActiveHours(start, finish, cfg, true)
+local asleep = shared.calculateActiveHours(start, finish, cfg, false)
+shared.beginCalculationFrame()
+for _ = 1, 3 do
+    close(shared.calculateActiveHours(start, finish, cfg, true), active, "cached awake burst")
+    close(shared.calculateActiveHours(start, finish, cfg, false), asleep, "cached sleep floor")
+end
+local changed = {}
+for k, v in pairs(cfg) do changed[k] = v end
+changed.sleepStartHour, changed.weekendSleepStartHour = 23.5, 23.5
+assert(shared.calculateActiveHours(start, finish, changed, false) > asleep,
+    "a different schedule must not reuse another configuration's cached result")
+shared.endCalculationFrame()
+close(shared.calculateActiveHours(start, finish, cfg, false), asleep, "frame cleanup")
+
 local transitions = timezone == "Europe/Brussels" and { {29, 3}, {25, 10} }
     or timezone == "America/New_York" and { {8, 3}, {1, 11} } or {}
 for _, transition in ipairs(transitions) do
     local day, month = transition[1], transition[2]
     close(shared.calculateActiveHours(at(day, 0, month), at(day + 1, 0, month), cfg, false), 8.5,
         "DST changes sleep length, not the daytime budget")
+    shared.beginCalculationFrame()
+    for _ = 1, 2 do
+        close(shared.calculateActiveHours(at(day, 0, month), at(day + 1, 0, month), cfg, false), 8.5,
+            "cached DST day preserves the daytime budget")
+    end
+    shared.endCalculationFrame()
 end
 settings.meal_pause_hours = 24
 local noTime = shared.getScheduleConfig()

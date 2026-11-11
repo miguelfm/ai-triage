@@ -19,6 +19,13 @@ local function loadPanel(entry, failure, config)
         selected = isReport and entry.selected or first ~= nil and first.id or nil,
     }
     local cfg = config or {}
+    local wallTime, scoreCalls, calendarCalls = os.time(), 0, 0
+    local clock = setmetatable({
+        time = function(t)
+            if t then calendarCalls = calendarCalls + 1; return os.time(t) end
+            return wallTime
+        end,
+    }, { __index = os })
     local noctalia = {
         getConfig = function(key) return cfg[key] end,
         state = {
@@ -53,15 +60,21 @@ local function loadPanel(entry, failure, config)
             end
         end,
     })
-    local drawn = nil
+    local drawn, renderCount = nil, 0
     local panel = {
-        render = function(tree) drawn = tree end,
+        render = function(tree) drawn = tree; renderCount = renderCount + 1 end,
         setWantsSecondTicks = function() end,
     }
-    local sharedEnv = setmetatable({ noctalia = noctalia }, { __index = _G })
+    local sharedEnv = setmetatable({ noctalia = noctalia, os = clock }, { __index = _G })
     local shared = assert(load(read("shared.luau"), "shared", "t", sharedEnv))()
+    local score = shared.calculateModelTriageScore
+    shared.calculateModelTriageScore = function(...)
+        scoreCalls = scoreCalls + 1
+        return score(...)
+    end
     local env = setmetatable({
         noctalia = noctalia,
+        os = clock,
         ui = ui,
         panel = panel,
         require = function(path)
@@ -75,9 +88,15 @@ local function loadPanel(entry, failure, config)
         values.report = { entries = { nextEntry } }
         values.selected = nextEntry.id
         watchers.report(values.report)
+        env.update() -- state events are coalesced until the host's next tick
         return drawn
     end
-    return drawn, publish, env, opened, copied, notifications
+    return drawn, publish, env, opened, copied, notifications, {
+        values = values, watchers = watchers, count = function() return renderCount end,
+        tree = function() return drawn end,
+        advance = function(seconds) wallTime = wallTime + seconds end,
+        scores = function() return scoreCalls end, calendarCalls = function() return calendarCalls end,
+    }
 end
 
 local function collect(node, kind, found)
@@ -488,4 +507,52 @@ local staleLabels = labels(loadPanel(resetEntry))
 assert(has(staleLabels, "~0d 02h"), "old countdowns need a discreet approximation marker")
 assert(not has(staleLabels, "Weekly Reset Imminent!"), "old readings must not create urgency")
 
-io.write("ok: panel rendering, typography, and rounded session estimates with precise calibration\n")
+-- Regression for the Nov 10 22:23 CPU-budget freeze. A burst of poller state
+-- notifications must not rebuild the hidden UI or repeat prediction per compare.
+local runtimeConfig = { schedule_aware_triage = true, sleep_start_hour = 22, sleep_end_hour = 8.5,
+    weekend_sleep_start_hour = 22, weekend_sleep_end_hour = 8.5, meal_pause_hours = 5 }
+local runtimeReport = { entries = {} }
+for index = 1, 6 do
+    runtimeReport.entries[index] = creditEntry("anthropic@" .. index, "Claude " .. index, index * 5, 144, { 150 })
+end
+local _, _, runtimeEnv, _, _, _, runtime = loadPanel(runtimeReport, nil, runtimeConfig)
+assert(runtime.count() == 1 and runtime.scores() == 6,
+    "opening must render once and calculate each routing score once, outside the sort comparator")
+local count, calls = runtime.count(), runtime.calendarCalls()
+for _ = 1, 29 do runtime.advance(1); runtimeEnv.update() end
+assert(runtime.count() == count and runtime.calendarCalls() == calls,
+    "second ticks must not repeat the calendar calculations or rebuild an unchanged panel")
+runtime.advance(1); runtimeEnv.update()
+assert(runtime.count() == count + 1, "countdowns must still refresh every 30 seconds")
+count = runtime.count()
+runtime.watchers.polling(true)
+runtime.watchers.refresh_queued(true)
+runtime.watchers.report(runtimeReport)
+runtime.watchers.polling(false)
+runtime.watchers.error({ code = "", detail = "" })
+assert(runtime.count() == count, "state-watch callbacks must only mark the view dirty")
+runtimeEnv.update()
+assert(runtime.count() == count + 1, "a burst of state changes must coalesce into one render on the next tick")
+runtimeEnv.onClose()
+count, calls = runtime.count(), runtime.calendarCalls()
+runtimeReport.entries[1].metrics[2].percent = 57
+runtime.watchers.report(runtimeReport)
+runtime.advance(3600); runtimeEnv.update()
+assert(runtime.count() == count and runtime.calendarCalls() == calls,
+    "closed panels must consume no render/calendar work despite new reports and time jumps")
+runtime.values.report = runtimeReport
+runtimeEnv.onOpen()
+assert(has(labels(runtime.tree()), "57%"), "reopening must read the latest shared state after an hour closed")
+local originalRender = runtimeEnv.panel.render
+runtimeEnv.panel.render = function() error("transient UI failure") end
+runtime.watchers.polling(true)
+runtimeEnv.update()
+runtimeConfig.meal_pause_hours = 6
+assert(runtimeEnv.require("./shared.luau").getScheduleConfig().mealPauseHours == 6,
+    "a failed render must release its calculation/configuration cache")
+runtimeEnv.panel.render = originalRender
+count = runtime.count()
+runtimeEnv.update()
+assert(runtime.count() == count + 1, "the next tick must recover from an ordinary rendering error")
+
+io.write("ok: panel rendering, coalesced lifecycle, bounded scoring, and render-error recovery\n")

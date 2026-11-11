@@ -601,6 +601,23 @@ local function refresh()
     end
 end
 
+-- The data worker can remain healthy after the panel VM exhausts its CPU
+-- budget. Detect that separately; never mislabel fresh provider readings as old.
+local function checkPanelHealth()
+    local health = noctalia.state.get("panel_health")
+    local renderedAt = type(health) == "table" and tonumber(health.rendered_at) or nil
+    local stalled = type(health) == "table" and health.open == true
+        and renderedAt ~= nil and os.time() - renderedAt > 90 or false
+    if stalled ~= (noctalia.state.get("panel_stalled") == true) then
+        noctalia.state.set("panel_stalled", stalled)
+        if stalled and type(noctalia.log) == "function" then
+            noctalia.log("AI Triage panel has not rendered for over 90s; quota polling is independent. Disable and re-enable the plugin to recover its panel runtime.")
+        end
+    end
+end
+
+noctalia.state.watch("panel_health", checkPanelHealth)
+
 noctalia.state.watch("command", function(value)
     if type(value) == "table" and value.action == "refresh" then
         retryCount = 0
@@ -609,6 +626,7 @@ noctalia.state.watch("command", function(value)
 end)
 
 function update()
+    checkPanelHealth()
     -- A read in flight answers on its own callback; the tick only starts them.
     if inFlight then return end
     refresh()
@@ -621,6 +639,14 @@ function onConfigChanged()
 end
 
 function onIpc(event, payload)
+    if event == "health" and type(noctalia.log) == "function" then
+        local health = noctalia.state.get("panel_health")
+        local at = type(health) == "table" and tonumber(health.rendered_at) or nil
+        noctalia.log(string.format("AI Triage health: polling=%s queued=%s panel_open=%s render_age=%ss stalled=%s",
+            tostring(inFlight), tostring(pendingRefresh), tostring(type(health) == "table" and health.open == true),
+            at and tostring(os.time() - at) or "unknown", tostring(noctalia.state.get("panel_stalled") == true)))
+        return
+    end
     if event == "refresh" then
         retryCount = 0
         refresh()

@@ -6,6 +6,16 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Built on top of the telemetry engine provided by [ai-usagebar](https://github.com/akitaonrails/ai-usagebar), AI Triage elevates basic quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming.
 
+**Version 1.11.0 fixes panels frozen after exceeding Noctalia's CPU budget.**
+Closed panels no longer rebuild on data notifications. While open, changes are
+coalesced until the next tick; unchanged countdowns refresh every 30 seconds.
+Routing scores are computed once per item, and date/availability calculations
+are shared within each render. Reopening reads the latest shared report.
+Ordinary rendering failures retain the previous view and retry on the next tick.
+An independent heartbeat check logs a stalled open panel and adds a warning to
+the bar tooltip, even if quota polling is still healthy.
+See the [incident, recovery and regression evidence](docs/ai_usagebar_compatibility.md#panel-cpu-budget-freeze-and-recovery-in-1110).
+
 **Version 1.10.0 adds optional Fable consumption details.**
 Enable **Show Fable usage** in plugin settings to add a Fable row immediately
 after Claude in both panel columns, plus its readings in Claude's bar tooltip.

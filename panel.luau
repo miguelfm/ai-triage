@@ -5,6 +5,10 @@
 local report = nil
 local polling = false
 local refreshQueued = false
+local panelOpen = false
+local dirty = true
+local lastRenderedAt = 0
+local RENDER_INTERVAL_SECS = 30
 
 local shared = require("./shared.luau")
 local parseIso = shared.parseIso
@@ -1149,13 +1153,17 @@ local function renderColumns(candidates, typo)
     local resetCredits = collectResetCredits(healthy, staggerPlan)
 
     local scheduleConfig = getScheduleConfig()
+    local scores = {}
+    local scoreTime = os.time()
+    for _, item in ipairs(modelItems) do
+        scores[item] = calculateModelTriageScore(item, staggerPlan, scoreTime, scheduleConfig, true)
+    end
 
     -- Sort models by triage score (considering session & weekly pacing, schedule-aware active hours, and staggering)
     table.sort(modelItems, function(a, b)
         local aFailed, bFailed = unavailable(a.entry), unavailable(b.entry)
         if aFailed ~= bFailed then return not aFailed end
-        local aScore = calculateModelTriageScore(a, staggerPlan, os.time(), scheduleConfig, true)
-        local bScore = calculateModelTriageScore(b, staggerPlan, os.time(), scheduleConfig, true)
+        local aScore, bScore = scores[a], scores[b]
         if math.abs(aScore - bScore) > 0.01 then
             return aScore > bScore
         end
@@ -1550,7 +1558,7 @@ local function renderColumns(candidates, typo)
     }, mainChildren))
 end
 
-function render()
+local function renderPanel()
     local typo = getTypography()
     local fs = typo.fontSize
     local gs = typo.glyphSize
@@ -1590,32 +1598,48 @@ function render()
     end
 end
 
+function render()
+    dirty = true
+    if not panelOpen then return end
+    shared.beginCalculationFrame()
+    local ok, err = pcall(renderPanel)
+    shared.endCalculationFrame()
+    if not ok then
+        if type(noctalia.log) == "function" then noctalia.log("AI Triage panel render failed: " .. tostring(err)) end
+        return -- keep the previous frame, retry on the next tick
+    end
+    dirty = false
+    lastRenderedAt = os.time()
+    noctalia.state.set("panel_health", { open = true, rendered_at = lastRenderedAt })
+end
+
 -- ── Lifecycle & Event Wiring ──────────────────────────────────────────────────
 
 noctalia.state.watch("report", function(value)
     if type(value) == "table" then
         report = value
         failure = NO_FAILURE
-        render()
+        dirty = true
     end
 end)
 
 noctalia.state.watch("error", function(value)
     failure = asFailure(value)
-    render()
+    dirty = true
 end)
 
 noctalia.state.watch("polling", function(value)
     polling = value == true
-    render()
+    dirty = true
 end)
 
 noctalia.state.watch("refresh_queued", function(value)
     refreshQueued = value == true
-    render()
+    dirty = true
 end)
 
 function onOpen(context)
+    panelOpen = true
     if type(context) == "string" and context ~= "" then
         noctalia.state.set("selected", context)
     end
@@ -1629,11 +1653,17 @@ function onOpen(context)
 end
 
 function update()
-    render()
+    if panelOpen and (dirty or os.time() - lastRenderedAt >= RENDER_INTERVAL_SECS) then render() end
 end
 
 function onClose()
+    panelOpen = false
     panel.setWantsSecondTicks(false)
+    noctalia.state.set("panel_health", { open = false, rendered_at = lastRenderedAt })
+end
+
+function onConfigChanged()
+    dirty = true
 end
 
 function onKey(chord, pressed)

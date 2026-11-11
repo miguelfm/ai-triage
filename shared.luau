@@ -4,6 +4,17 @@
 -- Relative require() arrived in API 22; the plugin manifest requires API 43.
 
 local M = {}
+local calculationFrame = nil
+
+-- Short-lived memoization for one panel render. Never reuse time/configuration
+-- dependent calculations across renders or retain reports in a long-lived cache.
+function M.beginCalculationFrame()
+    calculationFrame = { dates = {}, days = {}, hours = {} }
+end
+
+function M.endCalculationFrame()
+    calculationFrame = nil
+end
 
 M.WINDOW_5H = 18000
 M.WINDOW_7D = 604800
@@ -295,10 +306,13 @@ end
 -- "2026-08-15T11:29:59.872624Z" -> unix seconds (UTC).
 function M.parseIso(value)
     if type(value) ~= "string" then return nil end
+    if calculationFrame and calculationFrame.dates[value] then return calculationFrame.dates[value] end
     local y, mo, d, h, mi, s = value:match("^(%d+)%-(%d+)%-(%d+)T(%d+):(%d+):(%d+)")
     if y == nil then return nil end
-    return daysFromCivil(tonumber(y), tonumber(mo), tonumber(d)) * 86400
+    local parsed = daysFromCivil(tonumber(y), tonumber(mo), tonumber(d)) * 86400
         + tonumber(h) * 3600 + tonumber(mi) * 60 + tonumber(s)
+    if calculationFrame then calculationFrame.dates[value] = parsed end
+    return parsed
 end
 
 local function formatDuration(seconds)
@@ -1704,6 +1718,7 @@ M.DEFAULT_SCHEDULE = {
 }
 
 function M.getScheduleConfig()
+    if calculationFrame and calculationFrame.schedule then return calculationFrame.schedule end
     local aware = true
     if type(noctalia) == "table" and type(noctalia.getConfig) == "function" then
         if noctalia.getConfig("schedule_aware_triage") == false then
@@ -1722,7 +1737,7 @@ function M.getScheduleConfig()
         return default
     end
 
-    return {
+    local config = {
         scheduleAware = aware,
         sleepStartHour = numConfig("sleep_start_hour", 0, 0, 23.5),
         sleepEndHour = numConfig("sleep_end_hour", 8, 0, 23.5),
@@ -1731,6 +1746,8 @@ function M.getScheduleConfig()
         mealPauseHours = numConfig("meal_pause_hours", 1, 0, 24),
         burstDurationHours = 2.0,
     }
+    if calculationFrame then calculationFrame.schedule = config end
+    return config
 end
 
 local function sleepWindow(config, date)
@@ -1774,6 +1791,15 @@ function M.calculateActiveHours(tStart, tEnd, config, isUserActiveNow)
         isUserActiveNow = true
     end
 
+    local scheduleKey, hoursKey
+    if calculationFrame then
+        scheduleKey = table.concat({ config.sleepStartHour, config.sleepEndHour,
+            config.weekendSleepStartHour, config.weekendSleepEndHour, config.mealPauseHours or 0,
+            config.burstDurationHours or 2.0 }, "/")
+        hoursKey = scheduleKey .. "/" .. tostring(tStart) .. "/" .. tostring(tEnd) .. "/" .. tostring(isUserActiveNow)
+        if calculationFrame.hours[hoursKey] ~= nil then return calculationFrame.hours[hoursKey] end
+    end
+
     local current = os.date("*t", tStart)
     local sleepStart, sleepEnd = sleepWindow(config, current)
     local burstUntil = tStart
@@ -1785,41 +1811,48 @@ function M.calculateActiveHours(tStart, tEnd, config, isUserActiveNow)
     local cur = tStart
     while cur < tEnd do
         local date = os.date("*t", cur)
-        local function localTime(hour, dayOffset)
-            return os.time({ year = date.year, month = date.month, day = date.day + (dayOffset or 0),
-                hour = math.floor(hour), min = math.floor((hour % 1) * 60 + 0.5), sec = 0 })
-        end
-        local dayStart, dayEnd = localTime(0), localTime(0, 1)
-        local sStart, sEnd = sleepWindow(config, date)
-        local boundaries = { dayStart, dayEnd, localTime(sStart), localTime(sEnd) }
-        table.sort(boundaries)
-        local awakeHours = 0
-        local spans = {}
-        for index = 1, #boundaries - 1 do
-            local first, last = boundaries[index], boundaries[index + 1]
-            if last > first then
-                local mid = os.date("*t", math.floor((first + last) / 2))
-                local sleeping = inSleepWindow(mid.hour + mid.min / 60, sStart, sEnd)
-                spans[#spans + 1] = { first = first, last = last, sleeping = sleeping }
-                if not sleeping then awakeHours = awakeHours + (last - first) / 3600 end
+        local dayKey = scheduleKey and (scheduleKey .. "/" .. date.year .. "/" .. date.month .. "/" .. date.day)
+        local day = dayKey and calculationFrame.days[dayKey]
+        if not day then
+            local function localTime(hour, dayOffset)
+                return os.time({ year = date.year, month = date.month, day = date.day + (dayOffset or 0),
+                    hour = math.floor(hour), min = math.floor((hour % 1) * 60 + 0.5), sec = 0 })
             end
+            local dayStart, dayEnd = localTime(0), localTime(0, 1)
+            local sStart, sEnd = sleepWindow(config, date)
+            local boundaries = { dayStart, dayEnd, localTime(sStart), localTime(sEnd) }
+            table.sort(boundaries)
+            local awakeHours = 0
+            local spans = {}
+            for index = 1, #boundaries - 1 do
+                local first, last = boundaries[index], boundaries[index + 1]
+                if last > first then
+                    local mid = os.date("*t", math.floor((first + last) / 2))
+                    local sleeping = inSleepWindow(mid.hour + mid.min / 60, sStart, sEnd)
+                    spans[#spans + 1] = { first = first, last = last, sleeping = sleeping }
+                    if not sleeping then awakeHours = awakeHours + (last - first) / 3600 end
+                end
+            end
+            local daytimeWeight = awakeHours > 0
+                and math.max(0, 1 - (config.mealPauseHours or 0) / awakeHours) or 0
+            day = { endsAt = dayEnd, spans = spans, weight = daytimeWeight }
+            if dayKey then calculationFrame.days[dayKey] = day end
         end
-        local daytimeWeight = awakeHours > 0
-            and math.max(0, 1 - (config.mealPauseHours or 0) / awakeHours) or 0
-        for _, span in ipairs(spans) do
+        for _, span in ipairs(day.spans) do
             local first, last = math.max(cur, span.first), math.min(tEnd, span.last)
             if last > first then
                 if span.sleeping then
                     totalActiveHours = totalActiveHours + math.max(0, math.min(last, burstUntil) - first) / 3600
                 else
-                    totalActiveHours = totalActiveHours + (last - first) / 3600 * daytimeWeight
+                    totalActiveHours = totalActiveHours + (last - first) / 3600 * day.weight
                 end
             end
         end
-        cur = dayEnd
+        cur = day.endsAt
     end
-
-    return math.max(0.25, totalActiveHours)
+    local activeHours = math.max(0.25, totalActiveHours)
+    if hoursKey then calculationFrame.hours[hoursKey] = activeHours end
+    return activeHours
 end
 
 -- Default reference only; scoring uses nominalWeeklyActiveHours(config).

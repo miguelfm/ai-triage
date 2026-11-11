@@ -17,6 +17,14 @@ the source has no separate Fable session. The real panel was inspected on
 Hyprland with the Huge preset; the existing panel geometry and native scrolling
 remain sufficient. See the [Fable display audit](ai_usagebar_compatibility.md#optional-fable-consumption-details-in-1100).
 
+## Panel rendering and CPU budgets in 1.11.0
+
+The November 11 review on Noctalia 5.4.1 identified a separate panel-runtime
+CPU-budget freeze while polling stayed healthy. Version 1.11.0 coalesces state
+events, skips closed-panel rendering, bounds countdown redraws and reuses
+calendar calculations within a render. It adds an independent panel heartbeat
+diagnostic. See the [incident and recovery audit](ai_usagebar_compatibility.md#panel-cpu-budget-freeze-and-recovery-in-1110).
+
 ## Fast Boot and cold-start report persistence in 1.8.4
 
 Under Noctalia 5.4 and systemd/UWSM with parallel session launch (`-g -1`), the graphical shell and plugin service start before network/DNS connectivity (`network-online.target`) is fully resolved.

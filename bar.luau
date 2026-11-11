@@ -644,6 +644,9 @@ local function tooltip(picked, hidden)
     if hidden > 0 then
         rows[#rows + 1] = { key = noctalia.tr("ui.hidden_label"), value = noctalia.tr("ui.hidden_value", { count = hidden }) }
     end
+    if noctalia.state.get("panel_stalled") == true then
+        rows[#rows + 1] = { key = "Panel", value = "Panel stopped updating. Disable and re-enable AI Triage to reload it." }
+    end
     if #rows == 0 then
         rows[#rows + 1] = { key = noctalia.tr("ui.title"), value = noctalia.tr("ui.no_usage") }
     end

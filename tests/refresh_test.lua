@@ -310,4 +310,15 @@ assert(shared.providerGlyph("anthropic@gmail") == shared.providerGlyph("anthropi
     "an account should inherit the provider's glyph")
 assert(shared.providerGlyph("unknown") == "scale", "an unknown provider falls back")
 
-io.write("ok: refresh queue coalesced, timeouts rejected, provider visuals complete\n")
+state.set("panel_health", { open = true, rendered_at = wallTime - 91 })
+assert(values.panel_stalled == true and logs[#logs]:find("panel has not rendered", 1, true),
+    "a live data worker must detect a separately stalled panel")
+state.set("panel_health", { open = true, rendered_at = wallTime })
+assert(values.panel_stalled == false, "a successful new render must clear the panel-stall diagnostic")
+state.set("panel_health", { open = false, rendered_at = wallTime - 3600 })
+assert(values.panel_stalled == false, "a panel intentionally left closed must not trigger a stall warning")
+env.onIpc("health")
+assert(logs[#logs]:find("AI Triage health:", 1, true) and logs[#logs]:find("panel_open=false", 1, true),
+    "health IPC must expose worker/panel liveness without dumping report contents")
+
+io.write("ok: refresh queue coalesced, timeouts rejected, independent panel health, provider visuals complete\n")

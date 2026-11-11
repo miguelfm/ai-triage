@@ -17,6 +17,8 @@ Version **1.9.0** identifies model-specific reset offers without adding type lab
 to general resets or repeating the model throughout a credit card.
 Version **1.10.0** adds optional Fable readings beside Claude, distinguishing
 the shared session from the model's weekly limit.
+Version **1.11.0** prevents redundant panel renders/calendar calculations after
+the November 10 CPU-budget incident and detects panel stalls independently of polling.
 
 The original audit was checked on 2026-10-23 against the then-current release,
 [v1.43.0](https://github.com/akitaonrails/ai-usagebar/releases/tag/v1.43.0),
@@ -27,6 +29,93 @@ continues to own authentication, provider requests, caching, token renewal and
 rate-limit backoff. The plugin consumes the report without modifying credentials.
 See upstream's [report projection](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/report.rs)
 and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/antigravity/agy.rs).
+
+## Panel CPU-budget freeze and recovery in 1.11.0
+
+Investigated 2026-11-11 on Noctalia 5.4.1, ai-usagebar 1.50.0 and Hyprland.
+
+### Observed incident
+
+The panel showed `Updated 22:23` and the previous evening's percentages while
+`last-report.json` already contained fresh November 11 06:11 CET provider
+readings. Noctalia's journal recorded `state watch callback` CPU-budget errors
+at November 10 21:08:33, then `update` CPU-budget errors at 22:23:26 and 22:23:30.
+Closing and reopening the panel still showed the old frame. Polling and the bar
+continued working, isolating the failure to the panel runtime rather than the
+CLI or its credentials. Disabling and re-enabling just AI Triage recovered the
+panel immediately, including the latest 100% Fable weekly reading; the shell
+itself was not restarted.
+
+Previously, every report/error/polling/queue state notification rebuilt the
+complete panel, including while it was closed. Open-panel second ticks also
+rebuilt the entire tree and recomputed forecasts. The sort comparator repeatedly
+calculated routing scores; each score/advice/card could reconstruct identical
+local calendar days and availability windows. This unnecessary work exhausted
+the host callback budget and left its last successful frame on screen.
+
+### Prevention and independent detection
+
+Version 1.11.0 makes state watches lightweight: they store values and mark the
+view dirty. Closed panels do no rendering. Open panels coalesce changes until
+the next host tick, and unchanged countdowns redraw every 30 seconds rather than
+every second. Opening always reads the current shared report, so notifications
+received while closed cannot leave the panel's local copy behind.
+
+Each render computes one score per routing item before sorting. A temporary
+calculation frame shares parsed dates, schedule settings, compiled local-day
+spans and exact availability-window results. It is discarded after each render,
+including ordinary errors, so it cannot retain old data, stale configuration or
+cross-render time calculations. Existing sleep, DST, awake-burst and 0.25-hour
+numerical-floor semantics are preserved. An ordinary rendering error is logged;
+the last good frame remains and the next tick retries. This is not a promise to
+catch every fatal host VM interruption.
+
+A successful render publishes `panel_health`; closing publishes `open = false`.
+The poller checks this heartbeat on its next tick and when the heartbeat changes.
+An open panel with no successful render for over 90 seconds sets `panel_stalled`
+and emits a single transition log; the bar's tooltip explains how to reload the
+plugin. Closing or a fresh heartbeat clears the diagnostic. Detection is bounded
+by the poller's tick interval and does not disable/re-enable the plugin
+automatically or mark fresh provider readings as stale. The marker is runtime
+state, not another persistent report cache.
+
+### Verification and recovery commands
+
+The deterministic six-account replay compared v1.10.0 with this fix: opening
+went from two frames, 24 score evaluations and 2,928 calendar conversions to one
+frame, six evaluations and 28 conversions. Twenty report notifications while
+closed previously caused 20 rebuilds and 58,560 calendar conversions; now they
+cause zero renders and zero conversions. These are mocked-host workload counts,
+not a claimed measurement of Noctalia's CPU deadline.
+
+Regressions cover closed-panel updates, a one-hour time jump, latest-state
+reopening, state-event coalescing, 30-second redraws, one score per item,
+ordinary-render failure recovery/cache cleanup, independent stall detection and
+the bar warning. Cached/uncached availability is checked across different
+schedules, awake flags, the numerical floor and DST transitions in Brussels and
+New York. All twelve Lua suites, the Brussels deadline replay and plugin lint
+pass. The previously documented Python catalog mismatch for Mistral remains.
+After loading 1.11.0, live health checks at 06:22:09 and 06:22:42 CET showed the
+open panel's last successful render ages of one and 24 seconds respectively.
+A requested refresh saved a new report at 06:22:17, and the journal contained no
+new CPU-budget or render errors during that check.
+
+For a panel runtime already frozen before upgrading, reload only this plugin:
+
+```sh
+noctalia msg plugins disable miguelfm/ai-triage
+noctalia msg plugins enable miguelfm/ai-triage
+```
+
+The commands preserve plugin settings and the disk report/history cache.
+For later diagnosis without reloading, run
+`noctalia msg plugin miguelfm/ai-triage:poller all health` and inspect
+`journalctl --user -u noctalia.service`. It logs only polling/queue/open/stall
+flags and the age of the last successful panel render, not provider contents or
+credentials.
+[Noctalia's lifecycle documentation](https://docs.noctalia.dev/noctalia/v5.4.1/plugins/development/entries/)
+and [runtime API](https://docs.noctalia.dev/noctalia/v5.4.1/plugins/development/runtime-api/)
+describe panel callbacks, shared state and update intervals.
 
 ## Optional Fable consumption details in 1.10.0
 

@@ -763,4 +763,11 @@ assert(foundFable and #detailedClaude.tooltip() == #ordinaryClaude.tooltip() + 1
     "the optional detail must add one tooltip reading without replacing Claude")
 assert(containsText(detailedClaude.rendered(), "70%") and not containsText(detailedClaude.rendered(), "7%"),
     "the capsule must retain the normal Claude reading; the extra model detail belongs in its tooltip")
+detailedClaude.values.panel_stalled = true
+detailedClaude.publish(fableReport)
+local panelWarning = false
+for _, row in ipairs(detailedClaude.tooltip()) do
+    if row.key == "Panel" and row.value:find("stopped updating", 1, true) then panelWarning = true end
+end
+assert(panelWarning, "a healthy bar must expose the independent stalled-panel diagnostic")
 
