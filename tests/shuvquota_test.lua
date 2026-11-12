@@ -45,6 +45,15 @@ assert(byId["gemini@personal"].weeklyMetric.percent == 50)
 assert(byId["claude-oss@personal"].weeklyMetric.percent == 0)
 local fable = shared.claudeFableDetail(shared.collectModelItems({ claude })[1])
 assert(fable.weeklyMetric.percent == 100 and fable.sessionMetric.percent == 20 and fable.informational)
+assert(shared.headline(claude).percent == 20, "Shuvquota's exhausted Fable must not exhaust the Claude capsule")
+do
+    local reordered = clone(claude)
+    reordered.metrics = { reordered.metrics[3], reordered.metrics[2], reordered.metrics[1] }
+    local item = shared.collectModelItems({ reordered })[1]
+    assert(item.weeklyMetric.percent == 55 and item.sessionMetric.percent == 20,
+        "Shuvquota window order must not replace overall weekly usage with Fable")
+    assert(shared.claudeFableDetail(item).weeklyMetric.percent == 100)
+end
 assert(#shared.collectModelItems(report.entries) == 4, "Fable must not become an independent routing/calibration target")
 assert(codex.reset_credits.available == 2 and #codex.reset_credits.credits == 0 and codex.reset_credits.partial)
 local _, stats = shared.analyzeResetCredits({ codex }, now)

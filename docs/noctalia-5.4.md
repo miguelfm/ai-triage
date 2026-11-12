@@ -17,6 +17,13 @@ the source has no separate Fable session. The real panel was inspected on
 Hyprland with the Huge preset; the existing panel geometry and native scrolling
 remain sufficient. See the [Fable display audit](ai_usagebar_compatibility.md#optional-fable-consumption-details-in-1100).
 
+## Claude bar quota correction in 1.12.1
+
+Fable's full model-specific limit no longer overrides Claude's shared quota in
+the capsule or automatic provider selection. The weekly gauge and main tooltip
+use the overall weekly window regardless of metric order. Optional Fable detail
+remains available. See the [cause and regression checks](ai_usagebar_compatibility.md#claude-account-quota-selection-in-1121).
+
 ## Panel rendering and CPU budgets in 1.11.0
 
 The November 11 review on Noctalia 5.4.1 identified a separate panel-runtime

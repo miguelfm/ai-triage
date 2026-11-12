@@ -214,6 +214,27 @@ local onlyMalformedShort, onlyMalformedWeekly = shared.dualMetrics({ 42 })
 assert(onlyMalformedShort == nil and onlyMalformedWeekly == nil,
     "dualMetrics should not return a scalar metric")
 
+-- A model-specific weekly limit cannot fill an absent overall weekly window.
+do
+    local session = { label = "Session (5h)", percent = 39, window_secs = 18000 }
+    local weekly = { label = "Weekly (7d)", percent = 80, window_secs = 604800 }
+    local fable = { label = "FABLE (7d)", percent = 100, window_secs = 604800 }
+    local claude = { id = "anthropic@personal", status = "ready", metrics = { fable, weekly, session } }
+    assert(shared.headline(claude) == weekly, "preserve the first overall window selected by the collector")
+    local item = shared.collectModelItems({ claude })[1]
+    assert(item.sessionMetric == session and item.weeklyMetric == weekly,
+        "routing and calibration must select overall windows even if Fable arrives first")
+    claude.metrics = { fable, session }
+    item = shared.collectModelItems({ claude })[1]
+    assert(item.sessionMetric == session and item.weeklyMetric == nil and shared.headline(claude) == session,
+        "missing overall weekly quota must not be inferred from Fable")
+    claude.metrics = { fable }
+    item = shared.collectModelItems({ claude })[1]
+    assert(item.sessionMetric == nil and item.weeklyMetric == nil and shared.headline(claude) == nil,
+        "a Fable-only report must not invent shared Claude capacity or exhaustion")
+    assert(#claude.metrics == 1 and claude.metrics[1] == fable, "selection must preserve raw Fable details")
+end
+
 local reorderedModels = shared.modelHeadlines({ id = "antigravity", metrics = {
     { label = "Gemini", percent = 90, window_secs = 604800 },
     { label = "Gemini", percent = 20, window_secs = 18000 },

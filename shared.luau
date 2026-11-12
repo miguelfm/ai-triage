@@ -526,6 +526,20 @@ function M.isQuotaMetric(metric)
     return type(metric) == "table" and trim(tostring(metric.group or "")) == ""
 end
 
+-- Fable's extra limit is model-specific, even when the collector leaves it
+-- ungrouped. Keep it in the raw report for the optional detail, but never let
+-- it stand in for Claude's shared session/weekly quota or exhaust the account.
+function M.providerMetrics(entry)
+    local metrics = {}
+    for _, metric in ipairs(type(entry) == "table" and type(entry.metrics) == "table" and entry.metrics or {}) do
+        if M.isQuotaMetric(metric) and not (M.baseProvider(entry.id) == "anthropic"
+            and tostring(metric.label or ""):lower():find("%f[%w]fable%f[%W]")) then
+            metrics[#metrics + 1] = metric
+        end
+    end
+    return metrics
+end
+
 function M.metricText(metric)
     if type(metric) ~= "table" then return nil end
     if metric.headline == "value" and trim(tostring(metric.value or "")) ~= "" then
@@ -537,7 +551,7 @@ end
 
 function M.headline(entry)
     if type(entry) ~= "table" or type(entry.metrics) ~= "table" then return nil end
-    local metrics = entry.metrics
+    local metrics = M.providerMetrics(entry)
     if #metrics == 0 then return nil end
 
     local visibleMetrics = {}
@@ -1086,7 +1100,7 @@ function M.resetCreditScope(title, entry)
             or lower:find(start .. "%s+[%d%.]+%s+reset%f[%W]")
             or lower:find(start .. "[%- ]only%f[%W]")
             or lower:find("%f[%w]reset%s+for%s+" .. pattern .. "%f[%W]") then
-            local session = M.dualMetrics(entry and entry.metrics)
+            local session = M.dualMetrics(M.providerMetrics(entry))
             return { model = model, label = model .. " reset",
                 detail = M.baseProvider(entry and entry.id) == "anthropic" and model:lower() == "fable"
                     and ("Weekly: this model only" .. (session and " · 5h: all models" or ""))
@@ -1306,7 +1320,7 @@ function M.analyzeResetCredits(entries, nowTime, scheduleConfig)
         local availableCount = type(entry.reset_credits) == "table" and tonumber(entry.reset_credits.available) or 0
         local sections = type(entry.sections) == "table" and entry.sections or {}
 
-        local _, wMetric = M.dualMetrics(entry.metrics)
+        local _, wMetric = M.dualMetrics(M.providerMetrics(entry))
         local wPct = wMetric and tonumber(wMetric.percent) or 0
         local wWindow = wMetric and tonumber(wMetric.window_secs) or 604800
         local wAt = wMetric and M.parseIso(wMetric.reset_at)
@@ -1472,7 +1486,7 @@ function M.analyzeResetCredits(entries, nowTime, scheduleConfig)
         stats.advice.cardSummary = M.resetCreditScopeSummary(stats.advice, stats.advice.summary, false)
         stats.advice.summary = M.resetCreditScopeSummary(stats.advice, stats.advice.summary)
         if staggerPlan.fastTrack[id] then
-            local session, weekly = M.dualMetrics(stats.entry.metrics)
+            local session, weekly = M.dualMetrics(M.providerMetrics(stats.entry))
             stats.advice.urgency = M.resetCreditUrgency({ entry = stats.entry, providerId = id,
                 name = stats.name, sessionMetric = session, weeklyMetric = weekly },
                 stats.advice, nowTime, scheduleConfig, true)
@@ -1585,7 +1599,7 @@ function M.collectModelItems(candidates)
                     }
                 end
             elseif not M.isModelHidden(id, displayName) then
-                local sMetric, wMetric = M.dualMetrics(entry.metrics)
+                local sMetric, wMetric = M.dualMetrics(M.providerMetrics(entry))
                 items[#items + 1] = {
                     providerId = id,
                     providerName = displayName,
@@ -1601,7 +1615,7 @@ function M.collectModelItems(candidates)
             end
         else
             if not M.isModelHidden(id, displayName) then
-                local sMetric, wMetric = M.dualMetrics(entry.metrics)
+                local sMetric, wMetric = M.dualMetrics(M.providerMetrics(entry))
                 items[#items + 1] = {
                     providerId = id,
                     providerName = displayName,

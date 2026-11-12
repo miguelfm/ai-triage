@@ -763,6 +763,42 @@ assert(foundFable and #detailedClaude.tooltip() == #ordinaryClaude.tooltip() + 1
     "the optional detail must add one tooltip reading without replacing Claude")
 assert(containsText(detailedClaude.rendered(), "70%") and not containsText(detailedClaude.rendered(), "7%"),
     "the capsule must retain the normal Claude reading; the extra model detail belongs in its tooltip")
+
+-- Replay exhausted Fable with usable overall quota, including collector reorderings.
+do
+    local session = { label = "Session (5h)", percent = 39, window_secs = 18000 }
+    local weekly = { label = "Weekly (7d)", percent = 80, window_secs = 604800 }
+    local fable = { label = "Fable (7d)", percent = 100, severity = "critical", window_secs = 604800 }
+    for _, id in ipairs({ "anthropic", "anthropic@personal" }) do
+        for _, enabled in ipairs({ false, true }) do
+            for _, metrics in ipairs({ { session, weekly, fable }, { fable, session, weekly } }) do
+                local claude = { id = id, display_name = "Claude", status = "ready", metrics = metrics }
+                local config = { vendor = "anthropic", show_claude_fable = enabled, visualization = "gauge" }
+                local bar = loadBar(config, { entries = { claude } })
+                assert(containsText(bar.rendered(), "39%") and not containsText(bar.rendered(), "100%"),
+                    "exhausted Fable must not replace the shared Claude reading")
+                assert(bar.tooltip()[1].value == "39% / 80%", "Claude tooltip must use overall weekly usage")
+                local gauges = findAllNodes(bar.rendered(), function(n) return n.kind == "progress" end)
+                assert(#gauges == 2 and gauges[1].props.progress == 0.39 and gauges[2].props.progress == 0.80,
+                    "the two gauges must show shared session and overall weekly usage regardless of ordering")
+                if enabled then
+                    assert(bar.tooltip()[2].key == "Fable (shared 5h / weekly)"
+                        and bar.tooltip()[2].value == "39% / 100%", "Fable exhaustion must remain in its detail")
+                end
+                config.vertical = true
+                assert(containsText(loadBar(config, { entries = { claude } }).rendered(), "39%"),
+                    "vertical capsules must also ignore model-specific exhaustion")
+                local auto = loadBar({ vendor = "auto" }, { entries = { claude, entry("openai", "Codex", 60) } })
+                assert(auto.tooltip()[1].key == "Codex", "Fable must not inflate Claude's automatic bar ranking")
+                weekly.percent = 100
+                assert(containsText(loadBar(config, { entries = { claude } }).rendered(), "100%"),
+                    "exhausted overall weekly quota must still replace the session reading")
+                weekly.percent = 80
+            end
+        end
+    end
+end
+
 detailedClaude.values.panel_stalled = true
 detailedClaude.publish(fableReport)
 local panelWarning = false

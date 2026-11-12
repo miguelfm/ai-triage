@@ -111,6 +111,11 @@ python tests/check_shuvquota.py --live
 noctalia plugins lint .
 ```
 
+Version 1.12.1 keeps the model-specific Fable limit separate from Claude's shared
+quota in the headline, weekly gauge and routing inputs, even when Shuvquota
+returns Fable before the overall weekly window. Its 100% reading remains in the
+optional Fable detail. See the [quota-selection regression audit](ai_usagebar_compatibility.md#claude-account-quota-selection-in-1121).
+
 The fixture tests cover rounding versus calculation precision, cadence, separate
 Antigravity pools, Fable, missing/partial/future credits, named accounts,
 equivalent-quota routing scores, backend and URL changes, persistent report and

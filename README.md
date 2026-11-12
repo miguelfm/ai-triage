@@ -6,6 +6,13 @@ AI Triage is an intelligent AI quota monitoring, smart routing, and rolling sess
 
 Using [ai-usagebar](https://github.com/akitaonrails/ai-usagebar) by default, AI Triage elevates quota numbers into actionable routing decisions, real-time pace analysis, and automated session priming. An optional [Shuvquota](https://github.com/shuv1337/shuvquota) backend reads the shared local collector API.
 
+**Version 1.12.1 fixes Claude's bar reading when Fable is exhausted.**
+The capsule, automatic provider selection and weekly gauge use Claude's shared
+quotas. A full Fable limit remains in the optional Fable detail and no longer
+replaces the main reading with 100%. Overall weekly selection also stays correct
+when collectors reorder metrics; missing overall usage remains unreported.
+See the [cause, fix and regression coverage](docs/ai_usagebar_compatibility.md#claude-account-quota-selection-in-1121).
+
 **Version 1.12.0 adds an experimental Shuvquota backend.**
 Select **Quota source → Shuvquota (experimental)** and set the local collector
 URL, normally `http://127.0.0.1:4789`. Codex, Claude/Fable, and Antigravity's

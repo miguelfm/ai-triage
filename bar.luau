@@ -470,7 +470,7 @@ local function chip(entry, flagged, isVert, typo)
     if not glyphAfter then add(glyph) end
     add(name)
     if visualization == "gauge" and not hasSubmodels then
-        local mShort, mWeekly = dualMetrics(entry.metrics)
+        local mShort, mWeekly = dualMetrics(shared.providerMetrics(entry))
         local barNode = bars(mShort, mWeekly, 32, typo)
         if barNode == nil and percent ~= nil then
             barNode = bars({ percent = percent, severity = metric and metric.severity }, nil, 32, typo)
@@ -603,7 +603,7 @@ local function tooltip(picked, hidden)
                     end
                 end
             else
-                local metrics = type(entry.metrics) == "table" and entry.metrics or {}
+                local metrics = shared.providerMetrics(entry)
                 local mShort, mWeekly = dualMetrics(metrics)
                 local val, left = formatDualMetric(mShort, mWeekly)
                 if val ~= "" then

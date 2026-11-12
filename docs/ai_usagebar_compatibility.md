@@ -30,6 +30,42 @@ rate-limit backoff. The plugin consumes the report without modifying credentials
 See upstream's [report projection](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/report.rs)
 and [Antigravity CLI deadlines](https://github.com/akitaonrails/ai-usagebar/blob/v1.43.0/src/antigravity/agy.rs).
 
+## Claude account quota selection in 1.12.1
+
+Investigated 2026-11-12 on Noctalia 5.4.1 with both collector report formats.
+The saved AIUsageBar report contained 55% session, 97% overall weekly and 100%
+Fable weekly usage; the saved Shuvquota report contained 39%, 80% and 100%.
+Both sources represented `Fable (7d)` as an ungrouped metric. The headline
+selector treated any full ungrouped quota as account exhaustion, so Fable's 100%
+replaced the usable Claude reading and inflated its automatic bar ranking.
+Selecting the first weekly metric also allowed Fable to replace the overall
+weekly window if the collector reordered the metrics.
+
+`shared.providerMetrics(entry)` now selects Claude's account-wide quota metrics
+without the Fable-specific rows, including for named `anthropic@account` entries.
+The headline, dual bar gauges, main tooltip, panel/routing/calibration items and
+reset-credit estimates all use this selection. The normal primary-window
+behavior remains: the capsule follows the collector's primary shared window,
+and an exhausted shared session or overall week still takes precedence.
+Fable-only or partial reports cannot supply an absent overall weekly window.
+
+The raw report and optional Fable detail retain the actual model limit and its
+exhaustion. This correction applies with **Show Fable usage** both off and on;
+it requires no change to the selected collector or authentication.
+
+Regression coverage in `bar_test.lua`, `shared_test.lua` and `shuvquota_test.lua`
+reproduces exhausted Fable with usable shared quota, metric reordering, named
+accounts, optional detail, horizontal/vertical capsules, automatic ranking,
+real overall exhaustion and missing shared windows. Each of these three suites
+fails against the previous implementation. All 13 Lua suites pass after the fix;
+plugin lint reports zero errors/warnings and `noctalia config validate` passes.
+`python tests/check_shuvquota.py --live` also passes the running collector's
+Codex, Claude and Antigravity reports through the adapter, poller and bar/panel
+hosts; all three accounts report healthy readings.
+The aggregate runner reports 13/14 passing because the installed ai-usagebar
+1.50.0 catalog differs from the recorded 1.47 catalog, the pre-existing mismatch
+already recorded in the 1.10.0 audit. This patch does not update that catalog.
+
 ## Panel CPU-budget freeze and recovery in 1.11.0
 
 Investigated 2026-11-11 on Noctalia 5.4.1, ai-usagebar 1.50.0 and Hyprland.
